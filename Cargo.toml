@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+actix-files = "0.6.6"
 actix-web = "4.3.1"
 shuttle-actix-web = "0.46.0"
 shuttle-runtime = "0.46.0"
