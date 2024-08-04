@@ -1,4 +1,4 @@
-use actix_files::Files;
+use actix_files::{Files, NamedFile};
 use actix_web::middleware::Logger;
 use actix_web::HttpResponse;
 use actix_web::{
@@ -8,12 +8,13 @@ use actix_web::{
 };
 use hf_hub::api::sync::Api;
 use shuttle_actix_web::ShuttleActixWeb;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
 
-#[get("/hello")]
-async fn hello_world() -> &'static str {
-    "Hello World!"
+#[get("/")]
+async fn index() -> impl Responder {
+    NamedFile::open(PathBuf::from("static/index.html"))
 }
 
 #[get("/{user}/{repo}")]
@@ -21,7 +22,6 @@ async fn repo_info(
     path: Path<(String, String)>,
     state: web::Data<Arc<AppState>>,
 ) -> impl Responder {
-    info!("Requesting repo info");
     let (user, repo) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
     info!("Requesting repo info for {}", full_repo);
@@ -30,11 +30,6 @@ async fn repo_info(
 
     match repo.info() {
         Ok(info) => {
-            // let files = info
-            //     .files
-            //     .iter()
-            //     .map(|f| f.path.clone())
-            //     .collect::<Vec<_>>();
             let html = format!(
                 r#"
                 <!DOCTYPE html>
@@ -42,35 +37,34 @@ async fn repo_info(
                 <head>
                     <meta charset="UTF-8">
                     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>{} Repository</title>
+                    <title>{full_repo}</title>
+                    <link rel="icon" href="favicon.ico" type="image/x-icon">
                 </head>
                 <body>
-                    <h1>{} Repository</h1>
+                    <h1>{full_repo}</h1>
                     <h2>SHA: {}</h2>
                     <h2>Files:</h2>
                     <ul>
                         {}
                     </ul>
+
+                    <div>
+                        <h3>muggingface.com</h1>
+                        <img src="/static/muggingface_large.png" alt="muggingface.com" style="max-width: 10%; height: auto;">
+                    </div>
                 </body>
                 </html>
                 "#,
-                full_repo,
-                full_repo,
                 info.sha,
                 info.siblings
                     .iter()
                     .map(|f| format!("<li>{}</li>", f.rfilename))
                     .collect::<Vec<_>>()
-                    .join("\n") // files
-                                //     .iter()
-                                //     .map(|f| format!("<li>{}</li>", f))
-                                //     .collect::<Vec<_>>()
-                                //     .join("\n")
+                    .join("\n")
             );
             HttpResponse::Ok().content_type("text/html").body(html)
         }
         Err(_) => HttpResponse::NotFound().body(format!("Repository {} not found", full_repo)),
-        // Err(_) => HttpResponse::NotFound().body(format!("Repository {} not found", full_repo)),
     }
 }
 
@@ -87,9 +81,9 @@ async fn main() -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clon
     let config = move |cfg: &mut ServiceConfig| {
         cfg.service(
             web::scope("")
+                .service(index)
+                .service(Files::new("/static", "static/").index_file("index.html"))
                 .service(repo_info)
-                .service(hello_world)
-                .service(Files::new("/", "static/").index_file("index.html"))
                 .app_data(web::Data::new(app_state.clone()))
                 .wrap(Logger::default()),
         );
