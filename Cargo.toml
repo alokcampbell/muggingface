@@ -11,3 +11,8 @@ shuttle-actix-web = "0.48.0"
 shuttle-runtime = "0.48.0"
 tokio = "1.26.0"
 tracing = "0.1.40"
+
+[build]
+assets = [
+  "static/*",
+]
