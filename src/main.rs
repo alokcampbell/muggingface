@@ -10,12 +10,13 @@ use hf_hub::api::sync::Api;
 use shuttle_actix_web::ShuttleActixWeb;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::fs;
 use std::io::Write;
-use std::fs::File;
+use std::env;
 use reqwest;
 use tracing::info;
-
+use tokio;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 #[get("/")]
 async fn index() -> impl Responder {
     NamedFile::open(PathBuf::from("static/index.html"))
@@ -34,6 +35,14 @@ async fn repo_info(
 
     match repo.info() {
         Ok(info) => {
+            let user_home = env::var("USERPROFILE").unwrap();
+    
+            // Set the target directory path
+            let target_dir = PathBuf::from(user_home).join("data");
+            info!("Creating directory at: {:?}", target_dir);
+            // Create the directory if it doesn't exist
+            std::fs::create_dir_all(&target_dir).expect("Failed to create directory");
+            
             let html = format!(
                 r#"
                 <!DOCTYPE html>
@@ -67,11 +76,21 @@ async fn repo_info(
                     .join("\n")
             );
             for file in &info.siblings {
+                // checking / setting directories (i hate this)
+                let file_path = target_dir.join(&file.rfilename);
+                info!("Creating file at: {:?}", file_path);
+
+                if let Some(parent) = file_path.parent() {
+                    tokio::fs::create_dir_all(parent).await.expect("Failed to create subdirectories");
+                }
+
+                // actual download time (get the website, download the file, create the file, write the file.)
+
                 let url = format!("https://huggingface.co/{}/resolve/main/{}?download=true", full_repo, file.rfilename);
                 let response = reqwest::get(&url).await.expect("Failed to access file");
                 let bytes = response.bytes().await.expect("Failed to download file");
-                let mut file = File::create(&file.rfilename).expect("Failed to create file");
-                file.write_all(&bytes).expect("Failed to write file");
+                let mut file = File::create(&file_path).await.expect("Failed to create file");
+                file.write_all(&bytes).await.expect("Failed to write file");
             };
             HttpResponse::Ok().content_type("text/html").body(html)
         }
