@@ -8,9 +8,12 @@ use actix_web::{
 };
 use hf_hub::api::sync::Api;
 use shuttle_actix_web::ShuttleActixWeb;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::fs;
+use std::io::Write;
+use std::fs::File;
+use reqwest;
 use tracing::info;
 
 #[get("/")]
@@ -63,6 +66,13 @@ async fn repo_info(
                     .collect::<Vec<_>>()
                     .join("\n")
             );
+            for file in &info.siblings {
+                let url = format!("https://huggingface.co/{}/resolve/main/{}?download=true", full_repo, file.rfilename);
+                let response = reqwest::get(&url).await.expect("Failed to access file");
+                let bytes = response.bytes().await.expect("Failed to download file");
+                let mut file = File::create(&file.rfilename).expect("Failed to create file");
+                file.write_all(&bytes).expect("Failed to write file");
+            };
             HttpResponse::Ok().content_type("text/html").body(html)
         }
         Err(_) => HttpResponse::NotFound().body(format!("Repository {} not found", full_repo)),
