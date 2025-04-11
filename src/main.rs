@@ -8,6 +8,7 @@ use actix_web::{
 };
 use hf_hub::api::sync::Api;
 use shuttle_actix_web::ShuttleActixWeb;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
@@ -68,6 +69,17 @@ async fn repo_info(
     }
 }
 
+#[get("/calculator/{number1}/{number2}")]
+async fn alok(path: Path<(i32, i32)>) -> impl Responder {
+    let (number1, number2) = path.into_inner();
+    HttpResponse::Ok().content_type("text/html").body(calculator(number1, number2).to_string())
+}
+
+fn calculator(number1:i32, number2:i32) -> i32 {
+    let sum =number1 + number2;
+    sum
+}
+
 // #[derive(Clone)]
 struct AppState {
     hf_api: Api,
@@ -84,6 +96,7 @@ async fn main() -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clon
                 .service(index)
                 .service(Files::new("/static", "static/").index_file("index.html"))
                 .service(repo_info)
+                .service(alok)
                 .app_data(web::Data::new(app_state.clone()))
                 .wrap(Logger::default()),
         );
