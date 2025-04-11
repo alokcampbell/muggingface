@@ -36,11 +36,12 @@ async fn repo_info(
     match repo.info() {
         Ok(info) => {
             let user_home = env::var("USERPROFILE").unwrap();
-    
-            // Set the target directory path
-            let target_dir = PathBuf::from(user_home).join("data");
-            info!("Creating directory at: {:?}", target_dir);
-            // Create the directory if it doesn't exist
+            let target_dir = PathBuf::from(user_home).join("data").join(format!("{}-{}", full_repo, info.sha));
+
+            if target_dir.exists() {
+                return HttpResponse::NotFound().body(format!("Repository {} already cloned", full_repo));
+            }
+
             std::fs::create_dir_all(&target_dir).expect("Failed to create directory");
             
             let html = format!(
