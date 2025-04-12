@@ -12,6 +12,10 @@ shuttle-runtime = "0.53.0"
 tokio = "1.26.0"
 tracing = "0.1.40"
 reqwest = { version = "0.12", features = ["json"] }
+# Remote dependency (from GitHub)
+librqbit = { git = "https://github.com/djmango/rqbit.git", package = "librqbit" }
+# Local dependency (uncomment to use local version)
+# librqbit = { path = "../rqbit/crates/librqbit" }
 
 [build]
 assets = [

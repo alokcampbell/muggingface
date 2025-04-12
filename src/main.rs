@@ -10,7 +10,6 @@ use hf_hub::api::sync::Api;
 use shuttle_actix_web::ShuttleActixWeb;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::io::Write;
 use std::env;
 use reqwest;
 use tracing::info;
