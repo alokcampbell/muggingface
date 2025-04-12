@@ -13,9 +13,11 @@ use std::sync::Arc;
 use std::env;
 use reqwest;
 use tracing::info;
+use librqbit::*;
 use tokio;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+
 #[get("/")]
 async fn index() -> impl Responder {
     NamedFile::open(PathBuf::from("static/index.html"))
@@ -29,13 +31,12 @@ async fn repo_info(
     let (user, repo) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
     info!("Requesting repo info for {}", full_repo);
-
     let repo = state.hf_api.model(full_repo.clone());
 
     match repo.info() {
         Ok(info) => {
             let user_home = env::var("USERPROFILE").unwrap();
-            let target_dir = PathBuf::from(user_home).join("data").join(format!("{}-{}", full_repo, info.sha));
+            let target_dir: PathBuf = PathBuf::from(user_home.clone()).join("data").join(format!("{}-{}", full_repo, info.sha));
 
             if target_dir.exists() {
                 return HttpResponse::NotFound().body(format!("Repository {} already cloned", full_repo));
@@ -75,6 +76,7 @@ async fn repo_info(
                     .collect::<Vec<_>>()
                     .join("\n")
             );
+            let fullstring = format!("{}-{}", full_repo, info.sha);
             for file in &info.siblings {
                 // checking / setting directories (i hate this)
                 let file_path = target_dir.join(&file.rfilename);
@@ -85,13 +87,37 @@ async fn repo_info(
                 }
 
                 // actual download time (get the website, download the file, create the file, write the file.)
-
                 let url = format!("https://huggingface.co/{}/resolve/main/{}?download=true", full_repo, file.rfilename);
                 let response = reqwest::get(&url).await.expect("Failed to access file");
+                
+                if let Some(content_length) = response.content_length() {
+                    if content_length > 1_073_741_824 { // 1GB in bytes
+                        info!("File {} is too big ({} bytes)", file.rfilename, content_length);
+                        continue;
+                    }
+                }
+
                 let bytes = response.bytes().await.expect("Failed to download file");
                 let mut file = File::create(&file_path).await.expect("Failed to create file");
                 file.write_all(&bytes).await.expect("Failed to write file");
             };
+
+            // make torrent (i hate this)
+            let options = librqbit::CreateTorrentOptions {
+                name: Some(&fullstring),
+                piece_length: Some(2_097_152),
+            };
+            let torrent_file = librqbit::create_torrent(&target_dir, options)
+                .await
+                .expect("Failed to create torrent");
+            // make sure directory exists
+            let torrents_dir = target_dir.parent().unwrap().join("Torrents");
+            std::fs::create_dir_all(&torrents_dir).expect("Failed to create Torrents directory");
+            
+            let torrent_path = torrents_dir.join(format!("{}.torrent", info.sha));
+            std::fs::create_dir_all(torrent_path.parent().unwrap()).expect("Failed to create torrent directory");
+            // ok now write the file
+            std::fs::write(torrent_path, torrent_file.as_bytes().expect("Failed to get torrent bytes")).expect("Failed to write torrent file");
             HttpResponse::Ok().content_type("text/html").body(html)
         }
         Err(_) => HttpResponse::NotFound().body(format!("Repository {} not found", full_repo)),

@@ -2,32 +2,185 @@
 <html lang="en">
 
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>muggingface.com</title>
-  <link rel="icon" href="favicon.ico" type="image/x-icon">
+  <link rel="icon" href="favicon.ico" type="image/x-icon" />
   <style>
+
+      /* tags and ids */
+    * {
+      box-sizing: border-box;
+    }
+
     body,
     html {
+      margin: 0;
+      padding: 0;
       height: 100%;
-      margin: 10;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f9f9f9;
+      color: #333;
+    }
+
+    p {
+      font-size: 1.2rem;
+      margin-bottom: 1rem;
+    }
+
+    ol {
+      list-style-position: inside;
+      font-size: 1.1rem;
+      margin-bottom: 2rem;
+    }
+
+    li {
+      margin: 0.5rem 0;
+    }
+
+    img {
+      max-width: 300px;
+      height: auto;
+      margin-bottom: 2rem;
+    }
+
+    footer {
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+      background: #eee;
+      padding: 1rem;
+      font-size: 0.9rem;
+      text-align: center;
+      border-top: 1px solid #ccc;
+    }
+
+          /* classes and styles */
+
+    .gerbiltime {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 100%;
+      background-color: rgba(0, 0, 0, 0.8);
+      color: white;
+      z-index: 999;
       display: flex;
-      justify-content: center;
       align-items: center;
+      justify-content: center;
+    }
+
+    .container {
+      display: flex;
       flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      text-align: center;
+      padding: 2rem;
+    }
+
+    .welcome {
+      font-size: 3rem;
+      font-weight: bold;
+      margin-bottom: 1rem;
+    }
+
+    .gerbilcontent {
+      background-color: #222;
+      padding: 2rem;
+      border-radius: 10px;
+      text-align: left;
+      max-width: 400px;
+      width: 90%;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.6);
+    }
+
+    .gerbilcontent h2 {
+      margin-top: 0;
+    }
+
+    .gerbilcontent label {
+      display: flex;
+      align-items: center;
+      margin-top: 1rem;
+    }
+
+    .gerbilcontent input[type="checkbox"] {
+      margin-right: 0.5rem;
+    }
+
+    .gerbilcontent button {
+      margin-top: 1rem;
+      padding: 0.5rem 1rem;
+      background-color: #4caf50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .gerbilcontent button:disabled {
+      background-color: #888;
+      cursor: not-allowed;
     }
   </style>
 </head>
 
 <body>
-  <h1>muggingface.com</h1>
-  <p>simply follow our three step program:</p>
-  <ol>
-    <li>go to a model on huggingface.co</li>
-    <li>swap the url from huggingface.co to muggingface.com</li>
-    <li>profit</li>
-  </ol>
-  <img src="/static/muggingface_large.png" alt="muggingface.com" style="max-width: 25%; height: auto;">
+
+  <!-- terms of service thing thing thing -->
+
+  <div class="gerbiltime" id="modal">
+    <div class="gerbilcontent">
+      <h2>Welcome to muggingface.com</h2>
+      <p>something something fair use policy something something terms of use</p>
+      <label>
+        <input type="checkbox" id="agreeCheckbox" />
+        i agree to several gerbils being shipped to my house
+      </label>
+      <button id="continueBtn" disabled>Continue</button>
+    </div>
+  </div>
+
+  <!-- main site thing thing thing -->
+
+
+  <div class="container">
+    <div class="welcome">muggingface.com</div>
+    <p>Simply follow our three step program:</p>
+    <ol>
+      <li>Go to a model on huggingface.co</li>
+      <li>Swap the URL from huggingface.co to muggingface.com</li>
+      <li>???</li>
+      <li>Profit</li>
+    </ol>
+    <img src="/static/muggingface_large.png" alt="muggingface.com" />
+  </div>
+
+  <!-- footer thing thing thing -->
+
+  <footer>
+    &copy; made by big gerbil and little gerbil
+  </footer>
+
+  <!-- button checker / button listener thing thing thing -->
+
+  <script>
+    const gerbilbox = document.getElementById('agreeCheckbox');
+    const gerbilbutton = document.getElementById('continueBtn');
+    const modal = document.getElementById('modal');
+
+    gerbilbox.addEventListener('change', () => {
+      gerbilbutton.disabled = !gerbilbox.checked;
+    });
+
+    gerbilbutton.addEventListener('click', () => {
+      modal.style.display = 'none';
+      document.body.style.overflow = 'auto';
+    });
+  </script>
 </body>
 
 </html>
