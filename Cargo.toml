@@ -15,6 +15,10 @@ reqwest = { version = "0.12", features = ["json"] }
 bip_metainfo = "0.12.0"
 url = "2.5.4"
 librqbit = { git = "https://github.com/djmango/rqbit.git", package = "librqbit" }
+bendy = "0.3.3"
+sha1 = "0.10.6"
+percent-encoding = "2.3.1"
+hex = "0.4.3"
 
 [build]
 assets = [
