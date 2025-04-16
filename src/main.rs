@@ -24,6 +24,7 @@ use hex;
 use bendy::decoding::FromBencode;
 use bendy::encoding::ToBencode;
 use std::io::Write;
+use directories::BaseDirs;
 #[get("/")]
 async fn index() -> impl Responder {
     NamedFile::open(PathBuf::from("static/index.html"))
@@ -42,9 +43,9 @@ async fn repo_info(
     let repo = state.hf_api.model(full_repo.clone());
     match repo.info() {
         Ok(info) => {
-            let user_home = env::var("USERPROFILE").unwrap();
-            let target_dir: PathBuf = PathBuf::from(user_home.clone()).join("data").join(format!("{}-{}", full_repo, info.sha));
-
+            let base_dirs = BaseDirs::new().unwrap();
+            let user_home = base_dirs.home_dir();
+            let target_dir: PathBuf = PathBuf::from(user_home).join("data").join(format!("{}-{}", full_repo, info.sha));
             if target_dir.exists() {
                 return HttpResponse::NotFound().body(format!("Repository {} already cloned", full_repo));
             }

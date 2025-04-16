@@ -19,6 +19,7 @@ bendy = "0.3.3"
 sha1 = "0.10.6"
 percent-encoding = "2.3.1"
 hex = "0.4.3"
+directories = "6.0.0"
 
 [build]
 assets = [
