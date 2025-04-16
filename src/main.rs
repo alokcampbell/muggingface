@@ -51,40 +51,6 @@ async fn repo_info(
             }
 
             std::fs::create_dir_all(&target_dir).expect("Failed to create directory");
-            
-            let html = format!(
-                r#"
-                <!DOCTYPE html>
-                <html lang="en">
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>{full_repo}</title>
-                    <link rel="icon" href="favicon.ico" type="image/x-icon">
-                </head>
-                <body>
-                    <h1>{full_repo}</h1>
-                    <h2>SHA: {}</h2>
-                    <h2>Files:</h2>
-                    <ul>
-                        {}
-                    </ul>
-
-                    <div>
-                        <h3>muggingface.com</h1>
-                        <img src="/static/muggingface_large.png" alt="muggingface.com" style="max-width: 10%; height: auto;">
-                    </div>
-                </body>
-                </html>
-                "#,
-                info.sha,
-                info.siblings
-                    .iter()
-                    .map(|f| format!("<li>{}</li>", f.rfilename))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            );
-            let fullstring = format!("{}-{}", full_repo, info.sha);
 
             for file in &info.siblings {
                 // checking / setting directories (i hate this)
@@ -118,6 +84,7 @@ async fn repo_info(
             let torrent_path = torrents_dir.join(format!("{}.torrent", info.sha));
             std::fs::create_dir_all(torrent_path.parent().unwrap()).expect("Failed to create torrent directory");
 
+            let fullstring = format!("{}-{}", full_repo, info.sha);
             let options = librqbit::CreateTorrentOptions {
                 name: Some(&fullstring),
                 piece_length: Some(2_097_152),
@@ -145,8 +112,9 @@ async fn repo_info(
             let mut hasher = Sha1::new();
             hasher.update(&info_buf);
             let info_hash = hasher.finalize();
-            let info_hash_hex = hex::encode(&info_hash);            
-            let name_encoded = utf8_percent_encode(&fullstring, NON_ALPHANUMERIC).to_string();
+            let info_hash_hex = hex::encode(&info_hash);
+            
+            let name_encoded = utf8_percent_encode(&format!("{}-{}", full_repo, info.sha), NON_ALPHANUMERIC).to_string();
             let magnet_link = format!(
                 "magnet:?xt=urn:btih:{}&dn={}&tr={}",
                 info_hash_hex,
@@ -156,6 +124,41 @@ async fn repo_info(
             
             info!("Magnet link: {}", magnet_link);
             
+            let html = format!(
+                r#"
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>{full_repo}</title>
+                    <link rel="icon" href="favicon.ico" type="image/x-icon">
+                </head>
+                <body>
+                    <h1>{full_repo}</h1>
+                    <h2>SHA: {}</h2>
+                    <h2>Files:</h2>
+                    <ul>
+                        {}
+                    </ul>
+
+                    <div>
+                        <h3>muggingface.com</h3>
+                        <h3><a href="{}">MAGNET LINK</a></h3>
+                        <img src="/static/muggingface_large.png" alt="muggingface.com" style="max-width: 10%; height: auto;">
+                    </div>
+                </body>
+                </html>
+                "#,
+                info.sha,
+                info.siblings
+                    .iter()
+                    .map(|f| format!("<li>{}</li>", f.rfilename))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                magnet_link
+            );
+
             HttpResponse::Ok().content_type("text/html").body(html)
         }
         Err(_) => HttpResponse::NotFound().body(format!("Repository {} not found", full_repo)),
