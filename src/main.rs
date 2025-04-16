@@ -25,6 +25,8 @@ use bendy::decoding::FromBencode;
 use bendy::encoding::ToBencode;
 use std::io::Write;
 use directories::BaseDirs;
+use std::collections::HashMap;
+use std::sync::Mutex;
 #[get("/")]
 async fn index() -> impl Responder {
     NamedFile::open(PathBuf::from("static/index.html"))
@@ -47,6 +49,7 @@ async fn repo_info(
                 Some(b) => b,
                 None => return HttpResponse::InternalServerError().body("something messed ups"),
             };
+            // getting the home directory
             let user_home = base_dirs.home_dir();
             let target_dir: PathBuf = PathBuf::from(user_home).join("data").join(format!("{}-{}", full_repo, info.sha));
             if target_dir.exists() {
@@ -80,7 +83,7 @@ async fn repo_info(
                 file.write_all(&bytes).await.expect("Failed to write file");
             }
 
-            // create torrent after files are downloaded
+            // creating directories for torrents
             let torrents_dir = if let Some(parent) = target_dir.parent() {
                 parent.join("Torrents")
             } else {
@@ -97,6 +100,7 @@ async fn repo_info(
                 return HttpResponse::InternalServerError().body("something messed up");
             }
 
+            // creating the torrent
             let fullstring = format!("{}-{}", full_repo, info.sha);
             let options = librqbit::CreateTorrentOptions {
                 name: Some(&fullstring),
@@ -111,14 +115,13 @@ async fn repo_info(
             std::fs::write(&torrent_path, torrent_bytes).expect("Failed to write torrent file");
             
             let bencode_val = Value::from_bencode(&bytes_clone).expect("Failed to parse bencode");
-
             let dict = match bencode_val {
                 Value::Dict(d) => d,
                 _ => panic!("Invalid torrent format"),
             };
             
             let info_val = dict.iter().find(|(k, _)| k.as_ref() == b"info").map(|(_, v)| v.clone()).expect("No info dict found");
-            
+            // formatting the hash
             let mut info_buf = Vec::new();
             Write::write_all(&mut info_buf, &info_val.to_bencode().expect("Failed to encode info dict")).expect("Failed to write to buffer");
             
@@ -126,6 +129,8 @@ async fn repo_info(
             hasher.update(&info_buf);
             let info_hash = hasher.finalize();
             let info_hash_hex = hex::encode(&info_hash);
+
+            // creating magnet link
             
             let name_encoded = utf8_percent_encode(&format!("{}-{}", full_repo, info.sha), NON_ALPHANUMERIC).to_string();
             let magnet_link = format!(
@@ -136,7 +141,42 @@ async fn repo_info(
             );
             
             info!("Magnet link: {}", magnet_link);
+
+            // inserting the magnet link into memory so we can use it later
+            {
+                let mut map = state.magnet_links.lock().unwrap();
+                map.insert(full_repo.clone(), magnet_link.clone());
+            }
             
+            
+            // redirecting to the finished page
+            return HttpResponse::Found().append_header(("Location", format!("/{}", full_repo) + "/finished")).finish();
+        }
+        Err(_) => HttpResponse::NotFound().body(format!("Repository {} not found", full_repo)),
+    }
+}
+
+
+
+#[get("/{user}/{repo}/finished")]
+async fn repo_finished(
+    path: Path<(String, String)>,
+    state: web::Data<Arc<AppState>>,
+) -> impl Responder {
+    let (user, repo) = path.into_inner();
+    let full_repo = format!("{}/{}", user, repo);
+    let repo = state.hf_api.model(full_repo.clone());
+
+    match repo.info() {
+        Ok(info) => {
+
+            // take link out, and destroy it after so it doesnt linger in memory
+            let magnet_link = {
+                let mut map = state.magnet_links.lock().unwrap();
+                map.remove(&full_repo).unwrap_or_else(|| "Magnet link not found.".to_string())
+            };
+            
+
             let html = format!(
                 r#"
                 <!DOCTYPE html>
@@ -154,7 +194,6 @@ async fn repo_info(
                     <ul>
                         {}
                     </ul>
-
                     <div>
                         <h3>muggingface.com</h3>
                         <h3><a href="{}">MAGNET LINK</a></h3>
@@ -164,36 +203,38 @@ async fn repo_info(
                 </html>
                 "#,
                 info.sha,
-                info.siblings
-                    .iter()
-                    .map(|f| format!("<li>{}</li>", f.rfilename))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
+                info.siblings.iter().map(|f| format!("<li>{}</li>", f.rfilename)).collect::<Vec<_>>().join("\n"),
                 magnet_link
             );
-
-            HttpResponse::Ok().content_type("text/html").body(html)
+            return HttpResponse::Ok().content_type("text/html").body(html);
         }
-        Err(_) => HttpResponse::NotFound().body(format!("Repository {} not found", full_repo)),
+        Err(_) => HttpResponse::NotFound().body("uh oh"),
     }
 }
+
 
 // #[derive(Clone)]
 struct AppState {
     hf_api: Api,
+    magnet_links: Mutex<HashMap<String, String>>,
 }
 
 #[shuttle_runtime::main]
 async fn main() -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clone + 'static> {
     let app_state = Arc::new(AppState {
         hf_api: Api::new().unwrap(),
+        magnet_links: Mutex::new(HashMap::new()),
     });
     let config = move |cfg: &mut ServiceConfig| {
         cfg.service(
             web::scope("")
                 .service(index)
+                // main website
                 .service(Files::new("/static", "static/").index_file("index.html"))
+                // downloading + torrent creation + magnet link
                 .service(repo_info)
+                // finished page
+                .service(repo_finished)
                 .app_data(web::Data::new(app_state.clone()))
                 .wrap(Logger::default()),
         );
