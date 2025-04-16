@@ -43,7 +43,10 @@ async fn repo_info(
     let repo = state.hf_api.model(full_repo.clone());
     match repo.info() {
         Ok(info) => {
-            let base_dirs = BaseDirs::new().unwrap();
+            let base_dirs = match BaseDirs::new() {
+                Some(b) => b,
+                None => return HttpResponse::InternalServerError().body("something messed ups"),
+            };
             let user_home = base_dirs.home_dir();
             let target_dir: PathBuf = PathBuf::from(user_home).join("data").join(format!("{}-{}", full_repo, info.sha));
             if target_dir.exists() {
@@ -78,11 +81,21 @@ async fn repo_info(
             }
 
             // create torrent after files are downloaded
-            let torrents_dir = target_dir.parent().unwrap().join("Torrents");
+            let torrents_dir = if let Some(parent) = target_dir.parent() {
+                parent.join("Torrents")
+            } else {
+                return HttpResponse::InternalServerError().body("something messed up");
+            };
+
             std::fs::create_dir_all(&torrents_dir).expect("Failed to create Torrents directory");
             
             let torrent_path = torrents_dir.join(format!("{}.torrent", info.sha));
-            std::fs::create_dir_all(torrent_path.parent().unwrap()).expect("Failed to create torrent directory");
+
+            if let Some(torrent_parent) = torrent_path.parent() {
+                std::fs::create_dir_all(torrent_parent).expect("Failed to create torrent directory");
+            } else {
+                return HttpResponse::InternalServerError().body("something messed up");
+            }
 
             let fullstring = format!("{}-{}", full_repo, info.sha);
             let options = librqbit::CreateTorrentOptions {
