@@ -2118,6 +2118,8 @@ dependencies = [
  "librqbit",
  "percent-encoding",
  "reqwest 0.12.15",
+ "serde",
+ "serde_json",
  "sha1",
  "shuttle-actix-web",
  "shuttle-runtime",
