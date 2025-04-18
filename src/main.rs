@@ -121,7 +121,7 @@ async fn repo_info(
                         <title>{full_repo}</title>
                         <link rel="icon" href="favicon.ico" type="image/x-icon">
                         <style>
-                            <!-- progress container and bar -->
+                            /* progress bar container */
                             #p-container {{
                                 width: 100%;
                                 background-color: #000;
@@ -129,11 +129,12 @@ async fn repo_info(
                                 overflow: hidden;
                                 margin: 10px 0;
                             }}
-
+            
+                            /* progress bar  */
                             #p-bar {{
                                 width: 0%;
                                 height: 20px;
-                                background-color: red; 
+                                background-color: red;
                                 text-align: center;
                                 color: white;
                                 line-height: 20px;
@@ -144,24 +145,29 @@ async fn repo_info(
                     <body>
                         <h1>{full_repo}</h1>
                         <h2>SHA: {}</h2>
-
-                        <!-- progress bar (probably wanna remake this at some point or something)  -->
+            
+                        <!-- progress bar display -->
                         <div id="p-container">
                             <div id="p-bar">0%</div>
                         </div>
+            
                         <script>
                             const bar = document.getElementById("p-bar");
+            
                             async function updateProgress() {{
                                 try {{
-                                    <!-- getting progress json and running it -->
+                                    // fetch progress data from the server
                                     const res = await fetch("/{}/progress_json");
                                     if (!res.ok) return;
+            
                                     const data = await res.json();
-                                    <!-- got the data, now update bar -->
+            
+                                    // update progress bar 
                                     const percent = (data.downloaded / data.total) * 100;
                                     bar.style.width = percent + "%";
                                     bar.textContent = percent.toFixed(2) + "%";
-                                    <!-- if 100% finished, redirect to finished page -->
+            
+                                    // redirect if finished
                                     if (percent >= 100) {{
                                         window.location.href = "/{}/finished";
                                     }}
@@ -169,14 +175,14 @@ async fn repo_info(
                                     console.error("Progress fetch error:", err);
                                 }}
                             }}
-
-                            <!-- update progress every second, have the console log for bug testing -->
+            
+                            // poll progress every second
                             setInterval(() => {{
                                 console.log("Tick!");
                                 updateProgress();
                             }}, 1000);
                         </script>
-
+            
                         <div>
                             <h3>muggingface.com</h3>
                             <img src="/static/muggingface_large.png" alt="muggingface.com" style="max-width: 10%; height: auto;">
@@ -188,6 +194,7 @@ async fn repo_info(
                 full_repo,
                 full_repo,
             );
+            
 
 
             let target_dir_clone = target_dir.clone();
