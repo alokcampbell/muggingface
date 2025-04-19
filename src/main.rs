@@ -6,29 +6,150 @@ use actix_web::{
     web::{self, Path, ServiceConfig},
     Responder,
 };
+use bendy::decoding::FromBencode;
+use bendy::encoding::ToBencode;
+use bendy::value::Value;
+use directories::BaseDirs;
+use hex;
 use hf_hub::api::sync::Api;
+use librqbit;
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+use reqwest;
+use serde_json;
+use sha1::{Digest, Sha1};
+use sha2::Sha256;
 use shuttle_actix_web::ShuttleActixWeb;
+use std::collections::HashMap;
+use std::env;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::env;
-use reqwest;
-use tracing::info;
-use librqbit;
+use std::sync::Mutex;
 use tokio;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use sha1::{Sha1, Digest};
-use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
-use bendy::value::Value;
-use hex;
-use bendy::decoding::FromBencode;
-use bendy::encoding::ToBencode;
-use std::io::Write;
-use directories::BaseDirs;
-use std::collections::HashMap;
-use std::sync::Mutex;
-use serde_json;
-use sha2::Sha256;
+use tracing::info;
+
+fn render_loading_html_response(full_repo: &str, sha: &str) -> String {
+    let html = format!(
+        r#"
+        <!DOCTYPE html>
+        <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>{full_repo}</title>
+                <link rel="icon" href="favicon.ico" type="image/x-icon">
+                <style>
+                    #p-container {{
+                        width: 100%;
+                        background-color: #000;
+                        border-radius: 10px;
+                        overflow: hidden;
+                        margin: 10px 0;
+                    }}
+                    #p-bar {{
+                        width: 0%;
+                        height: 20px;
+                        background-color: red;
+                        text-align: center;
+                        color: white;
+                        line-height: 20px;
+                        transition: width 0.4s ease;
+                    }}
+                </style>
+            </head>
+            <body>
+                <h1>{full_repo}</h1>
+                <h2>SHA: {sha}</h2>
+
+                <div id="p-container">
+                    <div id="p-bar">0%</div>
+                </div>
+
+                <script>
+                    const bar = document.getElementById("p-bar");
+
+                    async function updateProgress() {{
+                        try {{
+                            const res = await fetch("/{full_repo}/progress_json");
+                            if (!res.ok) return;
+
+                            const data = await res.json();
+
+                            const percent = (data.downloaded / data.total) * 100;
+                            bar.style.width = percent + "%";
+                            bar.textContent = percent.toFixed(2) + "%";
+                            if (percent >= 100) {{
+                                setTimeout(() => {{
+                                    location.reload();
+                                }}, 500);
+                            }}
+                        }} catch (err) {{
+                            console.error("Progress fetch error:", err);
+                        }}
+                    }}
+
+                    setInterval(() => {{
+                        console.log("Tick!");
+                        updateProgress();
+                    }}, 1000);
+                </script>
+
+                <div>
+                    <h3>muggingface.com</h3>
+                    <img src="/static/muggingface_large.png" alt="muggingface.com" style="max-width: 10%; height: auto;">
+                </div>
+            </body>
+        </html>
+        "#
+    );
+
+    // return HttpResponse::Ok().content_type("text/html").body(html).finish()
+    return html;
+}
+
+fn render_finished_html_response(
+    full_repo: &str,
+    sha: &str,
+    file_names: &[String],
+    magnet_link: &str,
+) -> String {
+    let files_list = file_names
+        .iter()
+        .map(|f| format!("<li>{}</li>", f))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let html = format!(
+        r#"
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>{full_repo}</title>
+            <link rel="icon" href="favicon.ico" type="image/x-icon">
+        </head>
+        <body>
+            <h1>{full_repo}</h1>
+            <h2>SHA: {sha}</h2>
+            <h2>Files:</h2>
+            <ul>
+                {files_list}
+            </ul>
+            <div>
+                <h3>muggingface.com</h3>
+                <h3><a href="{magnet_link}">MAGNET LINK</a></h3>
+                <img src="/static/muggingface_large.png" alt="muggingface.com" style="max-width: 10%; height: auto;">
+            </div>
+        </body>
+        </html>
+        "#
+    );
+
+    return html;
+}
 
 #[get("/")]
 async fn index() -> impl Responder {
@@ -56,11 +177,14 @@ async fn repo_info(
             for file in &info.siblings {
                 let url = format!(
                     "https://huggingface.co/{}/resolve/main/{}?download=true",
-                    full_repo,
-                    file.rfilename
+                    full_repo, file.rfilename
                 );
                 // building client for getting the size of the file
-                let client = reqwest::Client::builder().user_agent("muggingface/1.0").redirect(reqwest::redirect::Policy::limited(10)).build().unwrap();
+                let client = reqwest::Client::builder()
+                    .user_agent("muggingface/1.0")
+                    .redirect(reqwest::redirect::Policy::limited(10))
+                    .build()
+                    .unwrap();
                 // sending request + header
                 let res = client.get(&url).header("Range", "bytes=0-0").send().await;
                 // checking if the request was successful
@@ -78,7 +202,6 @@ async fn repo_info(
                             }
                         }
                     }
-            
                     // fallback size if needed
                     if let Some(cl) = resp.content_length() {
                         total_size += cl;
@@ -87,7 +210,6 @@ async fn repo_info(
                     info!("Failed to fetch size for: {}", file.rfilename);
                 }
             }
-
             // start download progress, saving it in memory
             {
                 let mut progress = state.download_progress.lock().unwrap();
@@ -99,102 +221,25 @@ async fn repo_info(
                 let mut sizes = state.total_sizes.lock().unwrap();
                 sizes.insert(full_repo.clone(), total_size);
             }
-            
+            let file_names: Vec<String> = info.siblings.iter().map(|f| f.rfilename.clone()).collect();
             // getting the home directory
             let user_home = base_dirs.home_dir();
-            let target_dir: PathBuf = PathBuf::from(user_home).join("data").join(format!("{}-{}", full_repo, info.sha));
+            let target_dir: PathBuf = PathBuf::from(user_home)
+                .join("data")
+                .join(format!("{}-{}", full_repo, info.sha));
             if target_dir.exists() {
-                return HttpResponse::NotFound().body(format!("Repository {} already cloned", full_repo));
+                let torrents_dir = target_dir.parent().unwrap().join("Torrents");
+                let torrent_path = torrents_dir.join(format!("{}.torrent", info.sha));
+                if torrent_path.exists() {
+                    let html2 = render_finished_html_response(&full_repo, &info.sha, &file_names, state.magnet_links.lock().unwrap().get(&full_repo).unwrap());
+                    return HttpResponse::Ok().content_type("text/html").body(html2);
+                }
             }
 
             std::fs::create_dir_all(&target_dir).expect("Failed to create directory");
 
-            let html2 = format!(
-                r#"
-                <!DOCTYPE html>
-                <html lang="en">
-                    <head>
-                        <meta charset="UTF-8">
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                        <title>{full_repo}</title>
-                        <link rel="icon" href="favicon.ico" type="image/x-icon">
-                        <style>
-                            /* progress bar container */
-                            #p-container {{
-                                width: 100%;
-                                background-color: #000;
-                                border-radius: 10px;
-                                overflow: hidden;
-                                margin: 10px 0;
-                            }}
-            
-                            /* progress bar  */
-                            #p-bar {{
-                                width: 0%;
-                                height: 20px;
-                                background-color: red;
-                                text-align: center;
-                                color: white;
-                                line-height: 20px;
-                                transition: width 0.4s ease;
-                            }}
-                        </style>
-                    </head>
-                    <body>
-                        <h1>{full_repo}</h1>
-                        <h2>SHA: {}</h2>
-            
-                        <!-- progress bar display -->
-                        <div id="p-container">
-                            <div id="p-bar">0%</div>
-                        </div>
-            
-                        <script>
-                            const bar = document.getElementById("p-bar");
-            
-                            async function updateProgress() {{
-                                try {{
-                                    // fetch progress data from the server
-                                    const res = await fetch("/{}/progress_json");
-                                    if (!res.ok) return;
-            
-                                    const data = await res.json();
-            
-                                    // update progress bar 
-                                    const percent = (data.downloaded / data.total) * 100;
-                                    bar.style.width = percent + "%";
-                                    bar.textContent = percent.toFixed(2) + "%";
-            
-                                    // redirect if finished
-                                    if (percent >= 100) {{
-                                        window.location.href = "/{}/finished";
-                                    }}
-                                }} catch (err) {{
-                                    console.error("Progress fetch error:", err);
-                                }}
-                            }}
-            
-                            // poll progress every second
-                            setInterval(() => {{
-                                console.log("Tick!");
-                                updateProgress();
-                            }}, 1000);
-                        </script>
-            
-                        <div>
-                            <h3>muggingface.com</h3>
-                            <img src="/static/muggingface_large.png" alt="muggingface.com" style="max-width: 10%; height: auto;">
-                        </div>
-                    </body>
-                </html>
-                "#,
-                info.sha,
-                full_repo,
-                full_repo,
-            );
-            
-
-
+            let full_repo_for_response = full_repo.clone();
+            let sha_for_response = info.sha.clone();
             let target_dir_clone = target_dir.clone();
             let info_clone = info.clone();
             let full_repo_clone = full_repo.clone();
@@ -206,24 +251,34 @@ async fn repo_info(
                     let file_path = target_dir_clone.join(&file.rfilename);
 
                     if let Some(parent) = file_path.parent() {
-                        tokio::fs::create_dir_all(parent).await.expect("Failed to create subdirectories");
+                        tokio::fs::create_dir_all(parent)
+                            .await
+                            .expect("Failed to create subdirectories");
                     }
 
                     // actual download time (get the website, download the file, create the file, write the file.)
-                    let url = format!("https://huggingface.co/{}/resolve/main/{}?download=true", full_repo_clone, file.rfilename);
+                    let url = format!(
+                        "https://huggingface.co/{}/resolve/main/{}?download=true",
+                        full_repo_clone, file.rfilename
+                    );
                     let response = reqwest::get(&url).await.expect("Failed to access file");
-                    
-                    //if let Some(content_length) = response.content_length() { // only needing for testing otherwise wont download full model
-                    //    if content_length > 1_073_741_824 {
-                    //        info!("File {} is too big ({} bytes)", file.rfilename, content_length);
-                   //           continue;
-                   //      }
-                  //   }
+
+                //    // if let Some(content_length) = response.content_length() {
+                //         // only needing for testing otherwise wont download full model
+                //         if content_length > 1_073_741_824 {
+                //             info!(
+                //                 "File {} is too big ({} bytes)",
+                //                 file.rfilename, content_length
+                //             );
+                //             continue;
+                //         }
+                //     }
 
                     let bytes = response.bytes().await.expect("Failed to download file");
-                    let mut file = File::create(&file_path).await.expect("Failed to create file");
+                    let mut file = File::create(&file_path)
+                        .await
+                        .expect("Failed to create file");
                     file.write_all(&bytes).await.expect("Failed to write file");
-                
 
                     // updating the progress memory using the cloned state
 
@@ -242,12 +297,14 @@ async fn repo_info(
                     return;
                 };
 
-                std::fs::create_dir_all(&torrents_dir).expect("Failed to create Torrents directory");
-                
+                std::fs::create_dir_all(&torrents_dir)
+                    .expect("Failed to create Torrents directory");
+
                 let torrent_path = torrents_dir.join(format!("{}.torrent", info_clone.sha));
 
                 if let Some(torrent_parent) = torrent_path.parent() {
-                    std::fs::create_dir_all(torrent_parent).expect("Failed to create torrent directory");
+                    std::fs::create_dir_all(torrent_parent)
+                        .expect("Failed to create torrent directory");
                 } else {
                     return;
                 }
@@ -259,47 +316,75 @@ async fn repo_info(
                     piece_length: Some(2_097_152),
                 };
 
-                let torrent_file = librqbit::create_torrent(&target_dir_clone, options).await.expect("Failed to create torrent");
-                
-                let torrent_bytes = torrent_file.as_bytes().expect("Failed to get torrent bytes");
+                let torrent_file = librqbit::create_torrent(&target_dir_clone, options)
+                    .await
+                    .expect("Failed to create torrent");
+
+                let torrent_bytes = torrent_file
+                    .as_bytes()
+                    .expect("Failed to get torrent bytes");
                 let bytes_clone = torrent_bytes.clone();
-                
+
                 std::fs::write(&torrent_path, torrent_bytes).expect("Failed to write torrent file");
-                
-                let bencode_val = Value::from_bencode(&bytes_clone).expect("Failed to parse bencode");
+
+                let bencode_val =
+                    Value::from_bencode(&bytes_clone).expect("Failed to parse bencode");
                 let dict = match bencode_val {
                     Value::Dict(d) => d,
                     _ => panic!("Invalid torrent format"),
                 };
-                
-                let info_val = dict.iter().find(|(k, _)| k.as_ref() == b"info").map(|(_, v)| v.clone()).expect("No info dict found");
+
+                let info_val = dict
+                    .iter()
+                    .find(|(k, _)| k.as_ref() == b"info")
+                    .map(|(_, v)| v.clone())
+                    .expect("No info dict found");
                 // formatting the hash
                 let mut info_buf = Vec::new();
-                Write::write_all(&mut info_buf, &info_val.to_bencode().expect("Failed to encode info dict")).expect("Failed to write to buffer");
-                
+                Write::write_all(
+                    &mut info_buf,
+                    &info_val.to_bencode().expect("Failed to encode info dict"),
+                )
+                .expect("Failed to write to buffer");
+
                 let mut hasher = Sha1::new();
                 hasher.update(&info_buf);
                 let info_hash = hasher.finalize();
                 let info_hash_hex = hex::encode(&info_hash);
 
                 // creating magnet link
-                
-                let name_encoded = utf8_percent_encode(&format!("{}-{}", full_repo_clone, info_clone.sha), NON_ALPHANUMERIC).to_string();
+
+                let name_encoded = utf8_percent_encode(
+                    &format!("{}-{}", full_repo_clone, info_clone.sha),
+                    NON_ALPHANUMERIC,
+                )
+                .to_string();
                 let magnet_link = format!(
                     "magnet:?xt=urn:btih:{}&dn={}&tr={}",
                     info_hash_hex,
                     name_encoded,
-                    utf8_percent_encode("udp://tracker.openbittorrent.com:80/announce", NON_ALPHANUMERIC)
+                    utf8_percent_encode(
+                        "udp://tracker.openbittorrent.com:80/announce",
+                        NON_ALPHANUMERIC
+                    )
                 );
-                
+
                 // inserting the magnet link into memory so we can use it later
                 {
-                    let mut map = state.magnet_links.lock().unwrap();
+                    let mut map = state_clone.magnet_links.lock().unwrap();
                     map.insert(full_repo_clone.clone(), magnet_link.clone());
                 }
+                let file_names: Vec<String> = info_clone
+                    .siblings
+                    .iter()
+                    .map(|f| f.rfilename.clone())
+                    .collect();
+                let html2 =
+                    render_finished_html_response(&full_repo, &info.sha, &file_names, &magnet_link);
             });
-            return HttpResponse::Ok().content_type("text/html").body(html2);
-            //HttpResponse::Found().append_header(("Location", format!("/{}", full_repo) + "/finished")).finish()
+            return HttpResponse::Ok().content_type("text/html").body(
+                render_loading_html_response(&full_repo_for_response, &sha_for_response),
+            );
         }
         Err(_) => HttpResponse::NotFound().body(format!("Repository {} not found", full_repo)),
     }
@@ -314,9 +399,21 @@ async fn progress_json(
     let (user, repo) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
     // get the downloaded size
-    let downloaded = state.download_progress.lock().unwrap().get(&full_repo).copied().unwrap_or(0);
+    let downloaded = state
+        .download_progress
+        .lock()
+        .unwrap()
+        .get(&full_repo)
+        .copied()
+        .unwrap_or(0);
     // get the total size
-    let total = state.total_sizes.lock().unwrap().get(&full_repo).copied().unwrap_or(1);
+    let total = state
+        .total_sizes
+        .lock()
+        .unwrap()
+        .get(&full_repo)
+        .copied()
+        .unwrap_or(1);
     // return the json
     HttpResponse::Ok().json(serde_json::json!({ "downloaded": downloaded, "total": total }))
 }
@@ -333,13 +430,12 @@ async fn repo_finished(
 
     match repo.info() {
         Ok(info) => {
-
             // take link out, and destroy it after so it doesnt linger in memory
             let magnet_link = {
                 let mut map = state.magnet_links.lock().unwrap();
-                map.remove(&full_repo).unwrap_or_else(|| "Magnet link not found.".to_string())
+                map.remove(&full_repo)
+                    .unwrap_or_else(|| "Magnet link not found.".to_string())
             };
-            
 
             let html = format!(
                 r#"
@@ -367,7 +463,11 @@ async fn repo_finished(
                 </html>
                 "#,
                 info.sha,
-                info.siblings.iter().map(|f| format!("<li>{}</li>", f.rfilename)).collect::<Vec<_>>().join("\n"),
+                info.siblings
+                    .iter()
+                    .map(|f| format!("<li>{}</li>", f.rfilename))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
                 magnet_link
             );
             return HttpResponse::Ok().content_type("text/html").body(html);
@@ -375,7 +475,6 @@ async fn repo_finished(
         Err(_) => HttpResponse::NotFound().body(format!("Repository {} not found", full_repo)),
     }
 }
-
 
 // #[derive(Clone)]
 struct AppState {
