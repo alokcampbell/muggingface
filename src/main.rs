@@ -27,17 +27,15 @@ use std::io::Write;
 use directories::BaseDirs;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use serde_json::json;
-
+use serde_json;
+use sha2::Sha256;
 
 #[get("/")]
 async fn index() -> impl Responder {
     NamedFile::open(PathBuf::from("static/index.html"))
 }
 
-
-
-#[get("/{user}/{repo}")]
+#[get("/{user}/{repo}/{tail:.*}")]
 async fn repo_info(
     path: Path<(String, String)>,
     state: web::Data<Arc<AppState>>,
@@ -218,13 +216,14 @@ async fn repo_info(
                     //if let Some(content_length) = response.content_length() { // only needing for testing otherwise wont download full model
                     //    if content_length > 1_073_741_824 {
                     //        info!("File {} is too big ({} bytes)", file.rfilename, content_length);
-                 //           continue;
-                  //      }
-                 //   }
+                   //           continue;
+                   //      }
+                  //   }
 
                     let bytes = response.bytes().await.expect("Failed to download file");
                     let mut file = File::create(&file_path).await.expect("Failed to create file");
                     file.write_all(&bytes).await.expect("Failed to write file");
+                
 
                     // updating the progress memory using the cloned state
 
