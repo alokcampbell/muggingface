@@ -87,9 +87,9 @@ fn render_loading_html_response(full_repo: &str, sha: &str) -> String {
 
         async function updateProgress() {{
             try {{
-                const res = await fetch(`/${{fullRepo}}/tree/main/progress_json`);
-                if (!res.ok) {{
                     const res = await fetch(`/${{fullRepo}}/progress_json`);
+                if (!res.ok) {{
+                    return;
                 }}
 
                 const data = await res.json();
@@ -556,28 +556,6 @@ async fn progress_json(
     HttpResponse::Ok().json(serde_json::json!({ "downloaded": downloaded, "total": total }))
 }
 
-#[get("/{user}/{repo}/tree/{branch}/progress_json")]
-async fn progress_json_with_branch(
-    path: web::Path<(String, String, String)>,
-    state: web::Data<Arc<AppState>>,
-) -> impl Responder {
-    let (user, repo, _branch) = path.into_inner();
-    let full_repo = format!("{}/{}", user, repo);
-    
-    let downloaded = {
-        let progress = state.download_progress.lock().unwrap();
-        progress.get(&full_repo).copied().unwrap_or(0)
-    };
-    
-    let total = {
-        let sizes = state.total_sizes.lock().unwrap();
-        sizes.get(&full_repo).copied().unwrap_or(1)
-    };
-
-    info!("Progress for {}: {}/{} bytes", full_repo, downloaded, total);
-    
-    HttpResponse::Ok().json(serde_json::json!({ "downloaded": downloaded, "total": total }))
-}
 
 // #[derive(Clone)]
 struct AppState {
@@ -589,7 +567,6 @@ struct AppState {
 
 #[shuttle_runtime::main]
 async fn main(#[Secrets] secrets: shuttle_runtime::SecretStore) -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clone + 'static> {
-    // rework this later so its not needed to be hardcoded
     let app_state = Arc::new(AppState {
         hf_api: Api::new().unwrap(),
         magnet_links: Mutex::new(HashMap::new()),
@@ -605,7 +582,6 @@ async fn main(#[Secrets] secrets: shuttle_runtime::SecretStore) -> ShuttleActixW
                 // downloading + torrent creation + magnet link
                 .service(repo_info)
                 .service(progress_json)
-                .service(progress_json_with_branch)
                 .app_data(web::Data::new(app_state.clone()))
                 .app_data(web::Data::new(secrets))
                 .wrap(Logger::default()),
