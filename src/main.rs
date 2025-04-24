@@ -17,11 +17,9 @@ use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use reqwest;
 use serde_json;
 use sha1::{Digest, Sha1};
-use sha2::Sha256;
 use shuttle_actix_web::ShuttleActixWeb;
 use std::collections::HashMap;
 use std::env;
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -29,6 +27,15 @@ use tokio;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
+use s3::bucket::Bucket;
+use s3::creds::Credentials;
+use s3::region::Region;
+use zip::{ZipWriter, write::FileOptions};
+use std::fs::File as StdFile;
+use std::io::Write;
+use walkdir::WalkDir;
+use shuttle_runtime::Secrets;
+use shuttle_runtime::SecretStore;
 
 fn render_loading_html_response(full_repo: &str, sha: &str) -> String {
     let html = format!(
@@ -66,36 +73,44 @@ fn render_loading_html_response(full_repo: &str, sha: &str) -> String {
                 <div id="p-container">
                     <div id="p-bar">0%</div>
                 </div>
+    <script>
+        function getRepoFromUrl() {{
+            const pathParts = window.location.pathname.split('/');
+            const user = pathParts[1];
+            const repo = pathParts[2];
+            return `${{user}}/${{repo}}`;
+        }}
 
-                <script>
-                    const bar = document.getElementById("p-bar");
+        const fullRepo = getRepoFromUrl();
+        const bar = document.getElementById("p-bar");
+        let lastProgress = 0;
 
-                    async function updateProgress() {{
-                        try {{
-                            const res = await fetch("/{full_repo}/progress_json");
-                            if (!res.ok) return;
+        async function updateProgress() {{
+            try {{
+                const res = await fetch(`/${{fullRepo}}/tree/main/progress_json`);
+                if (!res.ok) {{
+                    const res = await fetch(`/${{fullRepo}}/progress_json`);
+                }}
 
-                            const data = await res.json();
+                const data = await res.json();
+                const percent = Math.round((data.downloaded / data.total) * 100);
 
-                            const percent = (data.downloaded / data.total) * 100;
-                            bar.style.width = percent + "%";
-                            bar.textContent = percent.toFixed(2) + "%";
-                            if (percent >= 100) {{
-                                setTimeout(() => {{
-                                    location.reload();
-                                }}, 500);
-                            }}
-                        }} catch (err) {{
-                            console.error("Progress fetch error:", err);
-                        }}
-                    }}
+                if (percent !== lastProgress) {{
+                    bar.style.width = percent + "%";
+                    bar.textContent = percent + "%";
+                    lastProgress = percent;
+                }}
 
-                    setInterval(() => {{
-                        console.log("Tick!");
-                        updateProgress();
-                    }}, 1000);
-                </script>
+                if (percent >= 100) {{
+                    location.reload();
+                }}
+            }} catch (err) {{
+            }}
+        }}
 
+        updateProgress();
+        setInterval(updateProgress, 1000);
+    </script>
                 <div>
                     <h3>muggingface.com</h3>
                     <img src="/static/muggingface_large.png" alt="muggingface.com" style="max-width: 10%; height: auto;">
@@ -105,7 +120,6 @@ fn render_loading_html_response(full_repo: &str, sha: &str) -> String {
         "#
     );
 
-    // return HttpResponse::Ok().content_type("text/html").body(html).finish()
     return html;
 }
 
@@ -156,10 +170,77 @@ async fn index() -> impl Responder {
     NamedFile::open(PathBuf::from("static/index.html"))
 }
 
-#[get("/{user}/{repo}/{tail:.*}")]
+async fn wasabi_upload(
+    file_path: &str,
+    bucket_name: &str,
+    base_dir: &std::path::Path,
+    state: &Arc<AppState>,
+    secrets: &SecretStore,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let access_key = secrets.get("AWS_ACCESS_KEY_ID").ok_or_else(|| "Missing AWS_ACCESS_KEY_ID".to_string())?;
+    let secret_key = secrets.get("AWS_SECRET_ACCESS_KEY").ok_or_else(|| "Missing AWS_SECRET_ACCESS_KEY".to_string())?;
+
+    let credentials = Credentials::new(Some(access_key.as_str()), Some(secret_key.as_str()), None, None, None)?;
+        
+    let region = Region::Custom {
+        region: "us-central-1".into(),
+        endpoint: "https://s3.us-central-1.wasabisys.com".into(),
+    };
+
+    let bucket = Bucket::new(bucket_name, region, credentials)?.with_path_style();
+    let data = tokio::fs::read(file_path).await?;
+    let file_path = std::path::Path::new(file_path);
+    let relative_path = file_path.strip_prefix(base_dir)?.to_string_lossy();
+
+    let folder = match file_path.extension().and_then(|ext| ext.to_str()) {
+        Some("zip") => "Zips",
+        Some("torrent") => "Torrents",
+        _ => "Misc",     
+    };
+
+    let wasabi_key = format!("{}/{}", folder, relative_path);
+
+    let response = bucket.put_object(&wasabi_key, &data).await?;
+    if response.status_code() != 200 {
+        info!("Failed to upload to Wasabi: {} for {}", response.status_code(), wasabi_key);
+        return Err(format!("Failed to upload {}: {}", wasabi_key, response.status_code()).into());
+    }
+    
+
+    let file_url = format!(
+        "https://{}.s3.us-central-1.wasabisys.com/{}",
+        bucket_name, 
+        wasabi_key
+    );
+    
+    let magnet_link = magnet_link(file_url.clone());
+    let mut magnet_links = state.magnet_links.lock().unwrap();
+    magnet_links.insert(file_url.clone(), magnet_link.clone());
+
+    Ok(file_url)
+}
+
+
+
+fn magnet_link(url: String) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(url.as_bytes());
+    let info_hash = hasher.finalize();
+    let info_hash_hex = hex::encode(info_hash);
+    let name_encoded = utf8_percent_encode(&url, NON_ALPHANUMERIC).to_string();
+    format!(
+        "magnet:?xt=urn:btih:{}&dn={}&tr={}",
+        info_hash_hex,
+        name_encoded,
+        utf8_percent_encode("udp://tracker.openbittorrent.com:80/announce", NON_ALPHANUMERIC)
+    )
+}
+
+#[get("/{user}/{repo}{tail:.*}")]
 async fn repo_info(
-    path: Path<(String, String)>,
+    path: web::Path<(String, String)>,
     state: web::Data<Arc<AppState>>,
+    secrets: web::Data<SecretStore>,
 ) -> impl Responder {
     let (user, repo) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
@@ -231,7 +312,11 @@ async fn repo_info(
                 let torrents_dir = target_dir.parent().unwrap().join("Torrents");
                 let torrent_path = torrents_dir.join(format!("{}.torrent", info.sha));
                 if torrent_path.exists() {
-                    let html2 = render_finished_html_response(&full_repo, &info.sha, &file_names, state.magnet_links.lock().unwrap().get(&full_repo).unwrap());
+                    let magnet_link = state.magnet_links.lock().unwrap().get(&full_repo).cloned().unwrap_or_else(|| {
+                        let url = format!("https://muggingface.co/{}/{}", full_repo, info.sha);
+                        magnet_link(url)
+                    });
+                    let html2 = render_finished_html_response(&full_repo, &info.sha, &file_names, &magnet_link);
                     return HttpResponse::Ok().content_type("text/html").body(html2);
                 }
             }
@@ -245,6 +330,7 @@ async fn repo_info(
             let full_repo_clone = full_repo.clone();
             // cloning the state so we can use it in the thread, otherwise it will be a different state
             let state_clone = state.clone();
+            let secrets_clone = secrets.clone();
             tokio::spawn(async move {
                 for file in &info_clone.siblings {
                     // checking / setting directories
@@ -280,12 +366,17 @@ async fn repo_info(
                         .expect("Failed to create file");
                     file.write_all(&bytes).await.expect("Failed to write file");
 
-                    // updating the progress memory using the cloned state
-
                     {
-                        let mut progress = state_clone.download_progress.lock().unwrap();
+                        let mut progress = match state_clone.download_progress.lock() {
+                            Ok(guard) => guard,
+                            Err(_) => {
+                                info!("Mutex was poisoned, skipping progress update");
+                                return;
+                            }
+                        };
                         if let Some(downloaded) = progress.get_mut(&full_repo_clone) {
                             *downloaded += bytes.len() as u64;
+                            info!("Updated progress for {}: {} bytes", full_repo_clone, *downloaded);
                         }
                     }
                 }
@@ -309,14 +400,59 @@ async fn repo_info(
                     return;
                 }
 
+                let zip_dir = if let Some(parent) = target_dir_clone.parent() {
+                    parent.join("Zips")
+                } else {
+                    return;
+                };
+
+                std::fs::create_dir_all(&zip_dir)
+                    .expect("Failed to create Zips directory");
+
+                let zip_name = format!("{}-{}.zip", full_repo_clone.replace("/", "-"), info_clone.sha);
+                let zip_path = zip_dir.join(&zip_name);
+                let zip_file = StdFile::create(&zip_path).expect("Failed to create zip file");
+                let mut zip = ZipWriter::new(zip_file);
+                let options: FileOptions<()> = FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+                
+                for entry in WalkDir::new(&target_dir_clone)
+                    .into_iter()
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.path() != zip_path)
+                {
+                    let path = entry.path();
+                    if path.is_file() {
+                        let name_in_zip = path
+                            .strip_prefix(&target_dir_clone)
+                            .unwrap()
+                            .to_string_lossy();
+                        zip.start_file(name_in_zip, options).expect("Failed to start file in zip");
+                        let mut f = StdFile::open(path).expect("Failed to open file for zipping");
+                        std::io::copy(&mut f, &mut zip).expect("Failed to write file into zip");
+                    }
+                }
+                
+                zip.finish().expect("Failed to finish zip file");
+                
+                info!("Attempting to upload zip file: {}", zip_path.to_string_lossy());
+                match wasabi_upload(&zip_path.to_string_lossy(), "muggingface.co", &zip_dir, &state_clone, &secrets_clone).await {
+                    Ok(url) => info!("Successfully uploaded zip to: {}", url),
+                    Err(e) => info!("Failed to upload zip to Wasabi: {} for file {}", e, zip_path.to_string_lossy()),
+                }
+
                 // creating the torrent
-                let fullstring = format!("{}-{}", full_repo_clone, info_clone.sha);
+                let bruh2 = zip_name.clone();
+
                 let options = librqbit::CreateTorrentOptions {
-                    name: Some(&fullstring),
+                    name: Some(&bruh2),
                     piece_length: Some(2_097_152),
                 };
 
-                let torrent_file = librqbit::create_torrent(&target_dir_clone, options)
+                let zip_metadata = std::fs::metadata(&zip_path).expect("Failed to get zip metadata");
+                info!("Zip file size: {} bytes", zip_metadata.len());
+
+                info!("Creating torrent from zip file: {}", zip_path.to_string_lossy());
+                let torrent_file = librqbit::create_torrent(&zip_path, options)
                     .await
                     .expect("Failed to create torrent");
 
@@ -326,6 +462,12 @@ async fn repo_info(
                 let bytes_clone = torrent_bytes.clone();
 
                 std::fs::write(&torrent_path, torrent_bytes).expect("Failed to write torrent file");
+
+                info!("Attempting to upload torrent file: {}", torrent_path.to_string_lossy());
+                match wasabi_upload(&torrent_path.to_string_lossy(), "muggingface.co", &torrents_dir, &state_clone, &secrets_clone).await {
+                    Ok(url) => info!("Successfully uploaded torrent to: {}", url),
+                    Err(e) => info!("Failed to upload torrent to Wasabi: {} for file {}", e, torrent_path.to_string_lossy()),
+                }
 
                 let bencode_val =
                     Value::from_bencode(&bytes_clone).expect("Failed to parse bencode");
@@ -393,87 +535,48 @@ async fn repo_info(
 // this is where we do the progress work, and the unwrapping the values
 #[get("/{user}/{repo}/progress_json")]
 async fn progress_json(
-    path: Path<(String, String)>,
+    path: web::Path<(String, String)>,
     state: web::Data<Arc<AppState>>,
 ) -> impl Responder {
     let (user, repo) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
-    // get the downloaded size
-    let downloaded = state
-        .download_progress
-        .lock()
-        .unwrap()
-        .get(&full_repo)
-        .copied()
-        .unwrap_or(0);
-    // get the total size
-    let total = state
-        .total_sizes
-        .lock()
-        .unwrap()
-        .get(&full_repo)
-        .copied()
-        .unwrap_or(1);
-    // return the json
+    
+    let downloaded = {
+        let progress = state.download_progress.lock().unwrap();
+        progress.get(&full_repo).copied().unwrap_or(0)
+    };
+    
+    let total = {
+        let sizes = state.total_sizes.lock().unwrap();
+        sizes.get(&full_repo).copied().unwrap_or(1)
+    };
+
+    info!("Progress for {}: {}/{} bytes", full_repo, downloaded, total);
+    
     HttpResponse::Ok().json(serde_json::json!({ "downloaded": downloaded, "total": total }))
 }
 
-// this is where the user is redirected to when the download is finished, and the magnet link is displayed
-#[get("/{user}/{repo}/finished")]
-async fn repo_finished(
-    path: Path<(String, String)>,
+#[get("/{user}/{repo}/tree/{branch}/progress_json")]
+async fn progress_json_with_branch(
+    path: web::Path<(String, String, String)>,
     state: web::Data<Arc<AppState>>,
 ) -> impl Responder {
-    let (user, repo) = path.into_inner();
+    let (user, repo, _branch) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
-    let repo = state.hf_api.model(full_repo.clone());
+    
+    let downloaded = {
+        let progress = state.download_progress.lock().unwrap();
+        progress.get(&full_repo).copied().unwrap_or(0)
+    };
+    
+    let total = {
+        let sizes = state.total_sizes.lock().unwrap();
+        sizes.get(&full_repo).copied().unwrap_or(1)
+    };
 
-    match repo.info() {
-        Ok(info) => {
-            // take link out, and destroy it after so it doesnt linger in memory
-            let magnet_link = {
-                let mut map = state.magnet_links.lock().unwrap();
-                map.remove(&full_repo)
-                    .unwrap_or_else(|| "Magnet link not found.".to_string())
-            };
-
-            let html = format!(
-                r#"
-                <!DOCTYPE html>
-                <html lang="en">
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>{full_repo}</title>
-                    <link rel="icon" href="favicon.ico" type="image/x-icon">
-                </head>
-                <body>
-                    <h1>{full_repo}</h1>
-                    <h2>SHA: {}</h2>
-                    <h2>Files:</h2>
-                    <ul>
-                        {}
-                    </ul>
-                    <div>
-                        <h3>muggingface.com</h3>
-                        <h3><a href="{}">MAGNET LINK</a></h3>
-                        <img src="/static/muggingface_large.png" alt="muggingface.com" style="max-width: 10%; height: auto;">
-                    </div>
-                </body>
-                </html>
-                "#,
-                info.sha,
-                info.siblings
-                    .iter()
-                    .map(|f| format!("<li>{}</li>", f.rfilename))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-                magnet_link
-            );
-            return HttpResponse::Ok().content_type("text/html").body(html);
-        }
-        Err(_) => HttpResponse::NotFound().body(format!("Repository {} not found", full_repo)),
-    }
+    info!("Progress for {}: {}/{} bytes", full_repo, downloaded, total);
+    
+    HttpResponse::Ok().json(serde_json::json!({ "downloaded": downloaded, "total": total }))
 }
 
 // #[derive(Clone)]
@@ -485,7 +588,8 @@ struct AppState {
 }
 
 #[shuttle_runtime::main]
-async fn main() -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clone + 'static> {
+async fn main(#[Secrets] secrets: shuttle_runtime::SecretStore) -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clone + 'static> {
+    // rework this later so its not needed to be hardcoded
     let app_state = Arc::new(AppState {
         hf_api: Api::new().unwrap(),
         magnet_links: Mutex::new(HashMap::new()),
@@ -500,10 +604,10 @@ async fn main() -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clon
                 .service(Files::new("/static", "static/").index_file("index.html"))
                 // downloading + torrent creation + magnet link
                 .service(repo_info)
-                // finished page
-                .service(repo_finished)
                 .service(progress_json)
+                .service(progress_json_with_branch)
                 .app_data(web::Data::new(app_state.clone()))
+                .app_data(web::Data::new(secrets))
                 .wrap(Logger::default()),
         );
     };
