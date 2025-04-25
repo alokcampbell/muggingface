@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ full_repo }}</title>
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <style>
+        #p-container {
+            width: 100%;
+            background-color: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        #p-bar {
+            width: 0%;
+            height: 20px;
+            background-color: red;
+            text-align: center;
+            color: white;
+            line-height: 20px;
+            transition: width 0.4s ease;
+        }
+
+        #completion-message {
+            display: none;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loading-content">
+        <h1>{{ full_repo }}</h1>
+        <h2>SHA: {{ sha }}</h2>
+
+        <div id="p-container">
+            <div id="p-bar">0%</div>
+        </div>
+    </div>
+
+    <div id="completion-message">
+        <h1>{{ full_repo }}</h1>
+        <h2>SHA: {{ sha }}</h2>
+        <h2>Files:</h2>
+        <ul id="file-list"></ul>
+        <div>
+            <h3>muggingface.com</h3>
+            <h3><a id="magnet-link" href="#">MAGNET LINK</a></h3>
+            <img src="/static/muggingface_large.png" alt="muggingface.com" style="max-width: 10%; height: auto;">
+        </div>
+    </div>
+
+    <script>
+        const bar = document.getElementById("p-bar");
+        const loadingContent = document.getElementById("loading-content");
+        const completionMessage = document.getElementById("completion-message");
+        const fileList = document.getElementById("file-list");
+        const magnetLink = document.getElementById("magnet-link");
+        let lastProgress = 0;
+
+        const eventSource = new EventSource(`/${window.location.pathname.split('/')[1]}/${window.location.pathname.split('/')[2]}/progress_sse`);
+
+        eventSource.addEventListener('progress', (event) => {
+            const percent = parseInt(event.data);
+            if (percent !== lastProgress) {
+                bar.style.width = percent + "%";
+                bar.textContent = percent + "%";
+                lastProgress = percent;
+            }
+        });
+
+        eventSource.addEventListener('complete', (event) => {
+            const data = JSON.parse(event.data);
+            // Update the magnet link
+            magnetLink.href = data.magnet_link;
+
+            // Update the file list
+            data.file_names.forEach(file => {
+                const li = document.createElement('li');
+                li.textContent = file;
+                fileList.appendChild(li);
+            });
+
+            // Show completion message and hide loading content
+            loadingContent.style.display = 'none';
+            completionMessage.style.display = 'block';
+
+            eventSource.close();
+        });
+
+        eventSource.onerror = (error) => {
+            console.error('EventSource failed:', error);
+            eventSource.close();
+        };
+    </script>
+</body>
+
+</html>

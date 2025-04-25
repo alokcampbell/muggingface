@@ -1,9 +1,9 @@
 use actix_files::{Files, NamedFile};
 use actix_web::middleware::Logger;
-use actix_web::HttpResponse;
+use actix_web::{HttpRequest, HttpResponse};
 use actix_web::{
     get,
-    web::{self, Path, ServiceConfig},
+    web::{self, ServiceConfig, Bytes},
     Responder,
 };
 use bendy::decoding::FromBencode;
@@ -36,91 +36,15 @@ use std::io::Write;
 use walkdir::WalkDir;
 use shuttle_runtime::Secrets;
 use shuttle_runtime::SecretStore;
+use tera::{Tera, Context};
+use async_stream;
+use sse_codec::Event;
 
-fn render_loading_html_response(full_repo: &str, sha: &str) -> String {
-    let html = format!(
-        r#"
-        <!DOCTYPE html>
-        <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>{full_repo}</title>
-                <link rel="icon" href="favicon.ico" type="image/x-icon">
-                <style>
-                    #p-container {{
-                        width: 100%;
-                        background-color: #000;
-                        border-radius: 10px;
-                        overflow: hidden;
-                        margin: 10px 0;
-                    }}
-                    #p-bar {{
-                        width: 0%;
-                        height: 20px;
-                        background-color: red;
-                        text-align: center;
-                        color: white;
-                        line-height: 20px;
-                        transition: width 0.4s ease;
-                    }}
-                </style>
-            </head>
-            <body>
-                <h1>{full_repo}</h1>
-                <h2>SHA: {sha}</h2>
-
-                <div id="p-container">
-                    <div id="p-bar">0%</div>
-                </div>
-    <script>
-        function getRepoFromUrl() {{
-            const pathParts = window.location.pathname.split('/');
-            const user = pathParts[1];
-            const repo = pathParts[2];
-            return `${{user}}/${{repo}}`;
-        }}
-
-        const fullRepo = getRepoFromUrl();
-        const bar = document.getElementById("p-bar");
-        let lastProgress = 0;
-
-        async function updateProgress() {{
-            try {{
-                    const res = await fetch(`/${{fullRepo}}/progress_json`);
-                if (!res.ok) {{
-                    return;
-                }}
-
-                const data = await res.json();
-                const percent = Math.round((data.downloaded / data.total) * 100);
-
-                if (percent !== lastProgress) {{
-                    bar.style.width = percent + "%";
-                    bar.textContent = percent + "%";
-                    lastProgress = percent;
-                }}
-
-                if (percent >= 100) {{
-                    location.reload();
-                }}
-            }} catch (err) {{
-            }}
-        }}
-
-        updateProgress();
-        setInterval(updateProgress, 1000);
-    </script>
-                <div>
-                    <h3>muggingface.com</h3>
-                    <img src="/static/muggingface_large.png" alt="muggingface.com" style="max-width: 10%; height: auto;">
-                </div>
-            </body>
-        </html>
-        "#
-    );
-
-    return html;
+fn render_loading_html_response(full_repo: &str, sha: &str, tera: &Tera) -> String {
+    let mut context = Context::new();
+    context.insert("full_repo", full_repo);
+    context.insert("sha", sha);
+    tera.render("loading.html", &context).expect("Failed to render loading template")
 }
 
 fn render_finished_html_response(
@@ -128,41 +52,14 @@ fn render_finished_html_response(
     sha: &str,
     file_names: &[String],
     magnet_link: &str,
+    tera: &Tera,
 ) -> String {
-    let files_list = file_names
-        .iter()
-        .map(|f| format!("<li>{}</li>", f))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let html = format!(
-        r#"
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>{full_repo}</title>
-            <link rel="icon" href="favicon.ico" type="image/x-icon">
-        </head>
-        <body>
-            <h1>{full_repo}</h1>
-            <h2>SHA: {sha}</h2>
-            <h2>Files:</h2>
-            <ul>
-                {files_list}
-            </ul>
-            <div>
-                <h3>muggingface.com</h3>
-                <h3><a href="{magnet_link}">MAGNET LINK</a></h3>
-                <img src="/static/muggingface_large.png" alt="muggingface.com" style="max-width: 10%; height: auto;">
-            </div>
-        </body>
-        </html>
-        "#
-    );
-
-    return html;
+    let mut context = Context::new();
+    context.insert("full_repo", full_repo);
+    context.insert("sha", sha);
+    context.insert("file_names", file_names);
+    context.insert("magnet_link", magnet_link);
+    tera.render("finished.html", &context).expect("Failed to render finished template")
 }
 
 #[get("/")]
@@ -236,13 +133,13 @@ fn magnet_link(url: String) -> String {
     )
 }
 
-#[get("/{user}/{repo}{tail:.*}")]
+#[get("/{user}/{repo}/{tail:.*}")]
 async fn repo_info(
-    path: web::Path<(String, String)>,
+    path: web::Path<(String, String, String)>,
     state: web::Data<Arc<AppState>>,
     secrets: web::Data<SecretStore>,
 ) -> impl Responder {
-    let (user, repo) = path.into_inner();
+    let (user, repo, _tail) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
     info!("Requesting repo info for {}", full_repo);
     let repo = state.hf_api.model(full_repo.clone());
@@ -316,7 +213,7 @@ async fn repo_info(
                         let url = format!("https://muggingface.co/{}/{}", full_repo, info.sha);
                         magnet_link(url)
                     });
-                    let html2 = render_finished_html_response(&full_repo, &info.sha, &file_names, &magnet_link);
+                    let html2 = render_finished_html_response(&full_repo, &info.sha, &file_names, &magnet_link, &state.tera);
                     return HttpResponse::Ok().content_type("text/html").body(html2);
                 }
             }
@@ -328,9 +225,9 @@ async fn repo_info(
             let target_dir_clone = target_dir.clone();
             let info_clone = info.clone();
             let full_repo_clone = full_repo.clone();
-            // cloning the state so we can use it in the thread, otherwise it will be a different state
             let state_clone = state.clone();
             let secrets_clone = secrets.clone();
+            
             tokio::spawn(async move {
                 for file in &info_clone.siblings {
                     // checking / setting directories
@@ -516,16 +413,9 @@ async fn repo_info(
                     let mut map = state_clone.magnet_links.lock().unwrap();
                     map.insert(full_repo_clone.clone(), magnet_link.clone());
                 }
-                let file_names: Vec<String> = info_clone
-                    .siblings
-                    .iter()
-                    .map(|f| f.rfilename.clone())
-                    .collect();
-                let html2 =
-                    render_finished_html_response(&full_repo, &info.sha, &file_names, &magnet_link);
             });
             return HttpResponse::Ok().content_type("text/html").body(
-                render_loading_html_response(&full_repo_for_response, &sha_for_response),
+                render_loading_html_response(&full_repo_for_response, &sha_for_response, &state.tera),
             );
         }
         Err(_) => HttpResponse::NotFound().body(format!("Repository {} not found", full_repo)),
@@ -556,6 +446,80 @@ async fn progress_json(
     HttpResponse::Ok().json(serde_json::json!({ "downloaded": downloaded, "total": total }))
 }
 
+#[get("/{user}/{repo}/progress_sse")]
+async fn progress_sse(
+    path: web::Path<(String, String)>,
+    state: web::Data<Arc<AppState>>,
+    _req: HttpRequest,
+) -> HttpResponse {
+    let (user, repo) = path.into_inner();
+    let full_repo = format!("{}/{}", user, repo);
+    info!("SSE connection established for {}", full_repo);
+    
+    let mut last_progress = 0;
+    let mut last_magnet_link = None;
+    
+    let stream = async_stream::stream! {
+        loop {
+            let downloaded = {
+                let progress = state.download_progress.lock().unwrap();
+                progress.get(&full_repo).copied().unwrap_or(0)
+            };
+            
+            let total = {
+                let sizes = state.total_sizes.lock().unwrap();
+                sizes.get(&full_repo).copied().unwrap_or(1)
+            };
+
+            let percent = ((downloaded as f64 / total as f64) * 100.0) as i32;
+            
+            if percent != last_progress {
+                info!("Sending progress update for {}: {}%", full_repo, percent);
+                let event = Event::message("progress", &percent.to_string());
+                yield Ok::<Bytes, std::io::Error>(Bytes::from(event.to_string()));
+                last_progress = percent;
+            }
+
+            let magnet_link = {
+                let magnet_links = state.magnet_links.lock().unwrap();
+                magnet_links.get(&full_repo).cloned()
+            };
+
+            if let Some(link) = magnet_link {
+                if last_magnet_link.as_ref() != Some(&link) {
+                    info!("Sending completion event for {} with magnet link", full_repo);
+                    // Get file names from the repo info
+                    let file_names = {
+                        let repo = state.hf_api.model(full_repo.clone());
+                        match repo.info() {
+                            Ok(info) => info.siblings.iter().map(|f| f.rfilename.clone()).collect::<Vec<_>>(),
+                            Err(_) => Vec::new(),
+                        }
+                    };
+
+                    let completion_data = serde_json::json!({
+                        "magnet_link": link,
+                        "file_names": file_names
+                    });
+
+                    let event = Event::message("complete", &completion_data.to_string());
+                    yield Ok::<Bytes, std::io::Error>(Bytes::from(event.to_string()));
+                    last_magnet_link = Some(link);
+                    break;
+                }
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    };
+
+    HttpResponse::Ok()
+        .content_type("text/event-stream")
+        .insert_header(("Cache-Control", "no-cache"))
+        .insert_header(("Connection", "keep-alive"))
+        .insert_header(("Access-Control-Allow-Origin", "*"))
+        .streaming(stream)
+}
 
 // #[derive(Clone)]
 struct AppState {
@@ -563,25 +527,27 @@ struct AppState {
     magnet_links: Mutex<HashMap<String, String>>,
     download_progress: Mutex<HashMap<String, u64>>,
     total_sizes: Mutex<HashMap<String, u64>>,
+    tera: Tera,
 }
 
 #[shuttle_runtime::main]
 async fn main(#[Secrets] secrets: shuttle_runtime::SecretStore) -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clone + 'static> {
+    let tera = Tera::new("static/**/*.html").expect("Failed to parse templates");
     let app_state = Arc::new(AppState {
         hf_api: Api::new().unwrap(),
         magnet_links: Mutex::new(HashMap::new()),
         download_progress: Mutex::new(HashMap::new()),
         total_sizes: Mutex::new(HashMap::new()),
+        tera,
     });
     let config = move |cfg: &mut ServiceConfig| {
         cfg.service(
             web::scope("")
                 .service(index)
-                // main website
                 .service(Files::new("/static", "static/").index_file("index.html"))
-                // downloading + torrent creation + magnet link
-                .service(repo_info)
                 .service(progress_json)
+                .service(progress_sse)
+                .service(repo_info)
                 .app_data(web::Data::new(app_state.clone()))
                 .app_data(web::Data::new(secrets))
                 .wrap(Logger::default()),
