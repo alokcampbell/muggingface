@@ -475,8 +475,8 @@ async fn progress_sse(
             
             if percent != last_progress {
                 info!("Sending progress update for {}: {}%", full_repo, percent);
-                let event = Event::message("progress", &percent.to_string());
-                yield Ok::<Bytes, std::io::Error>(Bytes::from(event.to_string()));
+                let event = format!("event: progress\ndata: {}\n\n", percent);
+                yield Ok::<Bytes, std::io::Error>(Bytes::from(event));
                 last_progress = percent;
             }
 
@@ -502,8 +502,8 @@ async fn progress_sse(
                         "file_names": file_names
                     });
 
-                    let event = Event::message("complete", &completion_data.to_string());
-                    yield Ok::<Bytes, std::io::Error>(Bytes::from(event.to_string()));
+                    let event = format!("event: complete\ndata: {}\n\n", completion_data.to_string());
+                    yield Ok::<Bytes, std::io::Error>(Bytes::from(event));
                     last_magnet_link = Some(link);
                     break;
                 }

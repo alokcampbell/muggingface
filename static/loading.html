@@ -62,11 +62,18 @@
         const magnetLink = document.getElementById("magnet-link");
         let lastProgress = 0;
 
+                console.log("Setting up SSE connection...");
         const eventSource = new EventSource(`/${window.location.pathname.split('/')[1]}/${window.location.pathname.split('/')[2]}/progress_sse`);
 
+                eventSource.onmessage = (event) => {
+                    console.log("Received message:", event);
+                };
+
         eventSource.addEventListener('progress', (event) => {
+            console.log("Received progress event:", event.data);
             const percent = parseInt(event.data);
-            if (percent !== lastProgress) {
+            if (!isNaN(percent) && percent !== lastProgress) {
+                console.log("Updating progress bar to:", percent + "%");
                 bar.style.width = percent + "%";
                 bar.textContent = percent + "%";
                 lastProgress = percent;
@@ -74,21 +81,30 @@
         });
 
         eventSource.addEventListener('complete', (event) => {
-            const data = JSON.parse(event.data);
-            // Update the magnet link
-            magnetLink.href = data.magnet_link;
+            console.log("Received complete event:", event.data);
+            try {
+                const data = JSON.parse(event.data);
+                console.log("Parsed completion data:", data);
+                
+                // Update the magnet link
+                magnetLink.href = data.magnet_link;
+                
+                // Clear existing file list
+                fileList.innerHTML = '';
+                
+                // Update the file list
+                data.file_names.forEach(file => {
+                    const li = document.createElement('li');
+                    li.textContent = file;
+                    fileList.appendChild(li);
+                });
 
-            // Update the file list
-            data.file_names.forEach(file => {
-                const li = document.createElement('li');
-                li.textContent = file;
-                fileList.appendChild(li);
-            });
-
-            // Show completion message and hide loading content
-            loadingContent.style.display = 'none';
-            completionMessage.style.display = 'block';
-
+                // Show completion message and hide loading content
+                loadingContent.style.display = 'none';
+                completionMessage.style.display = 'block';
+            } catch (e) {
+                console.error("Error parsing completion data:", e);
+            }
             eventSource.close();
         });
 
@@ -96,6 +112,10 @@
             console.error('EventSource failed:', error);
             eventSource.close();
         };
+
+    eventSource.onopen = () => {
+        console.log("SSE connection opened");
+    };
     </script>
 </body>
 
