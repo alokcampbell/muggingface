@@ -458,26 +458,48 @@ async fn progress_sse(
     
     let mut last_progress = 0;
     let mut last_magnet_link = None;
+    let mut last_status = String::new();
     
     let stream = async_stream::stream! {
+        // Send initial status
+        let status = "Starting download...";
+        let event = format!("event: status\ndata: {}\n\n", status);
+        yield Ok::<Bytes, std::io::Error>(Bytes::from(event));
+        last_status = status.to_string();
+
         loop {
-            let downloaded = {
+            let (downloaded, total) = {
                 let progress = state.download_progress.lock().unwrap();
-                progress.get(&full_repo).copied().unwrap_or(0)
-            };
-            
-            let total = {
                 let sizes = state.total_sizes.lock().unwrap();
-                sizes.get(&full_repo).copied().unwrap_or(1)
+                (
+                    progress.get(&full_repo).copied().unwrap_or(0),
+                    sizes.get(&full_repo).copied().unwrap_or(1)
+                )
             };
 
-            let percent = ((downloaded as f64 / total as f64) * 100.0) as i32;
+            let percent = if total > 0 {
+                ((downloaded as f64 / total as f64) * 100.0) as i32
+            } else {
+                0
+            };
             
             if percent != last_progress {
-                info!("Sending progress update for {}: {}%", full_repo, percent);
+                info!("Sending progress update for {}: {}% ({} bytes)", full_repo, percent, downloaded);
                 let event = format!("event: progress\ndata: {}\n\n", percent);
                 yield Ok::<Bytes, std::io::Error>(Bytes::from(event));
                 last_progress = percent;
+
+                // Update status based on progress
+                let status = if percent == 100 {
+                    "Creating torrent...".to_string()
+                } else {
+                    format!("Downloading: {}%", percent)
+                };
+                if status != last_status {
+                    let event = format!("event: status\ndata: {}\n\n", status);
+                    yield Ok::<Bytes, std::io::Error>(Bytes::from(event));
+                    last_status = status;
+                }
             }
 
             let magnet_link = {
@@ -502,6 +524,12 @@ async fn progress_sse(
                         "file_names": file_names
                     });
 
+                    // Send final status
+                    let status = "Complete!";
+                    let event = format!("event: status\ndata: {}\n\n", status);
+                    yield Ok::<Bytes, std::io::Error>(Bytes::from(event));
+
+                    // Send completion event
                     let event = format!("event: complete\ndata: {}\n\n", completion_data.to_string());
                     yield Ok::<Bytes, std::io::Error>(Bytes::from(event));
                     last_magnet_link = Some(link);

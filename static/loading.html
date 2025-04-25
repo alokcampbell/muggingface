@@ -29,6 +29,12 @@
             display: none;
             margin-top: 20px;
         }
+
+        #status-message {
+            margin: 10px 0;
+            font-weight: bold;
+            color: #666;
+        }
     </style>
 </head>
 
@@ -36,7 +42,7 @@
     <div id="loading-content">
         <h1>{{ full_repo }}</h1>
         <h2>SHA: {{ sha }}</h2>
-
+        <div id="status-message">Starting download...</div>
         <div id="p-container">
             <div id="p-bar">0%</div>
         </div>
@@ -60,62 +66,51 @@
         const completionMessage = document.getElementById("completion-message");
         const fileList = document.getElementById("file-list");
         const magnetLink = document.getElementById("magnet-link");
+                const statusMessage = document.getElementById("status-message");
         let lastProgress = 0;
 
                 console.log("Setting up SSE connection...");
-        const eventSource = new EventSource(`/${window.location.pathname.split('/')[1]}/${window.location.pathname.split('/')[2]}/progress_sse`);
+                const fullRepo = '{{ full_repo | safe }}';
+                const [user, repo] = fullRepo.split('/');
+                console.log("Connecting to SSE for user:", user, "repo:", repo);
+                const eventSource = new EventSource(`/${user}/${repo}/progress_sse`);
 
-                eventSource.onmessage = (event) => {
-                    console.log("Received message:", event);
-                };
-
-        eventSource.addEventListener('progress', (event) => {
-            console.log("Received progress event:", event.data);
-            const percent = parseInt(event.data);
-            if (!isNaN(percent) && percent !== lastProgress) {
-                console.log("Updating progress bar to:", percent + "%");
-                bar.style.width = percent + "%";
-                bar.textContent = percent + "%";
-                lastProgress = percent;
-            }
-        });
-
-        eventSource.addEventListener('complete', (event) => {
-            console.log("Received complete event:", event.data);
-            try {
-                const data = JSON.parse(event.data);
-                console.log("Parsed completion data:", data);
-                
-                // Update the magnet link
-                magnetLink.href = data.magnet_link;
-                
-                // Clear existing file list
-                fileList.innerHTML = '';
-                
-                // Update the file list
-                data.file_names.forEach(file => {
-                    const li = document.createElement('li');
-                    li.textContent = file;
-                    fileList.appendChild(li);
+                eventSource.addEventListener("status", (event) => {
+                    console.log("Status update:", event.data);
+                    statusMessage.textContent = event.data;
                 });
 
-                // Show completion message and hide loading content
-                loadingContent.style.display = 'none';
-                completionMessage.style.display = 'block';
-            } catch (e) {
-                console.error("Error parsing completion data:", e);
-            }
+                eventSource.addEventListener("progress", (event) => {
+                    const progress = parseInt(event.data);
+                    console.log("Progress update:", progress);
+                    bar.style.width = `${progress}%`;
+                    bar.textContent = `${progress}%`;
+                    lastProgress = progress;
+        });
+
+                eventSource.addEventListener("complete", (event) => {
+                    console.log("Completion event received");
+                const data = JSON.parse(event.data);
+                console.log("Completion data:", data);
+
+                // Update file list
+                fileList.innerHTML = data.file_names.map(file => `<li>${file}</li>`).join("");
+
+                // Update magnet link
+                magnetLink.href = data.magnet_link;
+
+                // Show completion message
+                loadingContent.style.display = "none";
+                completionMessage.style.display = "block";
+
+                // Close the SSE connection
             eventSource.close();
         });
 
         eventSource.onerror = (error) => {
-            console.error('EventSource failed:', error);
-            eventSource.close();
+            console.error("SSE Error:", error);
+            statusMessage.textContent = "Connection error. Please refresh the page.";
         };
-
-    eventSource.onopen = () => {
-        console.log("SSE connection opened");
-    };
     </script>
 </body>
 
