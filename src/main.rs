@@ -27,9 +27,6 @@ use tokio;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
-use s3::bucket::Bucket;
-use s3::creds::Credentials;
-use s3::region::Region;
 use zip::{ZipWriter, write::FileOptions};
 use std::fs::File as StdFile;
 use std::io::Write;
@@ -38,7 +35,17 @@ use shuttle_runtime::Secrets;
 use shuttle_runtime::SecretStore;
 use tera::{Tera, Context};
 use async_stream;
-use sse_codec::Event;
+use aws_config::meta::region::RegionProviderChain;
+use aws_sdk_s3::{
+    config::{Builder as S3ConfigBuilder, Region},
+    primitives::ByteStream,
+    Client,
+    types::ObjectCannedAcl,
+};
+use aws_sdk_s3::config::Credentials;
+use std::path::Path;
+use tokio::fs;
+use std::borrow::Cow;
 
 fn render_loading_html_response(full_repo: &str, sha: &str, tera: &Tera) -> String {
     let mut context = Context::new();
@@ -67,56 +74,73 @@ async fn index() -> impl Responder {
     NamedFile::open(PathBuf::from("static/index.html"))
 }
 
-async fn wasabi_upload(
+
+async fn r2_upload(
     file_path: &str,
-    bucket_name: &str,
-    base_dir: &std::path::Path,
     state: &Arc<AppState>,
     secrets: &SecretStore,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let access_key = secrets.get("AWS_ACCESS_KEY_ID").ok_or_else(|| "Missing AWS_ACCESS_KEY_ID".to_string())?;
-    let secret_key = secrets.get("AWS_SECRET_ACCESS_KEY").ok_or_else(|| "Missing AWS_SECRET_ACCESS_KEY".to_string())?;
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let access_key = secrets
+        .get("AWS_ACCESS_KEY_ID")
+        .ok_or("Missing AWS_ACCESS_KEY_ID")?;
+    let secret_key = secrets
+        .get("AWS_SECRET_ACCESS_KEY")
+        .ok_or("Missing AWS_SECRET_ACCESS_KEY")?;
+    let account_id = secrets
+        .get("CLOUDFLARE_ACCOUNT_ID")
+        .ok_or("Missing CLOUDFLARE_ACCOUNT_ID")?;
+    
+    let bucket_name = "gerbiltestman";
+    let endpoint_str = format!("https://{}.r2.cloudflarestorage.com", account_id);
 
-    let credentials = Credentials::new(Some(access_key.as_str()), Some(secret_key.as_str()), None, None, None)?;
-        
-    let region = Region::Custom {
-        region: "us-central-1".into(),
-        endpoint: "https://s3.us-central-1.wasabisys.com".into(),
-    };
+    let region_provider = RegionProviderChain::first_try(Region::new("auto"))
+        .or_default_provider()
+        .or_else(Region::new("us-east-1"));
+    let shared_config = aws_config::from_env()
+        .region(region_provider)
+        .credentials_provider(
+            Credentials::new(
+                access_key,
+                secret_key,
+                None,
+                None,
+                "custom"
+            )
+        )
+        .load()
+        .await;
 
-    let bucket = Bucket::new(bucket_name, region, credentials)?.with_path_style();
-    let data = tokio::fs::read(file_path).await?;
-    let file_path = std::path::Path::new(file_path);
-    let relative_path = file_path.strip_prefix(base_dir)?.to_string_lossy();
+    let s3_config = S3ConfigBuilder::from(&shared_config)
+        .endpoint_url(endpoint_str.clone())
+        .force_path_style(true)
+        .build();
+    let client = Client::from_conf(s3_config);
 
-    let folder = match file_path.extension().and_then(|ext| ext.to_str()) {
-        Some("zip") => "Zips",
-        Some("torrent") => "Torrents",
-        _ => "Misc",     
-    };
+    let data = fs::read(file_path).await?;
+    let object_key = Path::new(file_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("Invalid filename")?;
 
-    let wasabi_key = format!("{}/{}", folder, relative_path);
-
-    let response = bucket.put_object(&wasabi_key, &data).await?;
-    if response.status_code() != 200 {
-        info!("Failed to upload to Wasabi: {} for {}", response.status_code(), wasabi_key);
-        return Err(format!("Failed to upload {}: {}", wasabi_key, response.status_code()).into());
+    client
+        .put_object()
+        .bucket(bucket_name)
+        .key(object_key)
+        .body(ByteStream::from(data.clone()))
+        .acl(ObjectCannedAcl::Private)
+        .send()
+        .await?;
+    let proxy = "gerbil.muggingface.co";
+    let file_url = format!("{}/{}/{}", endpoint_str, bucket_name, object_key);
+    let file_url2 = format!("{}/{}", proxy, object_key);
+    let magnet = magnet_link(file_url2.clone());
+    {
+        let mut links = state.magnet_links.lock().unwrap();
+        links.insert(file_url2.clone(), magnet);
     }
-    
-
-    let file_url = format!(
-        "https://{}.s3.us-central-1.wasabisys.com/{}",
-        bucket_name, 
-        wasabi_key
-    );
-    
-    let magnet_link = magnet_link(file_url.clone());
-    let mut magnet_links = state.magnet_links.lock().unwrap();
-    magnet_links.insert(file_url.clone(), magnet_link.clone());
 
     Ok(file_url)
 }
-
 
 
 fn magnet_link(url: String) -> String {
@@ -332,9 +356,19 @@ async fn repo_info(
                 zip.finish().expect("Failed to finish zip file");
                 
                 info!("Attempting to upload zip file: {}", zip_path.to_string_lossy());
-                match wasabi_upload(&zip_path.to_string_lossy(), "muggingface.co", &zip_dir, &state_clone, &secrets_clone).await {
+                let zip_url = r2_upload(
+                    &zip_path.to_string_lossy(),
+                    &state_clone,
+                    &secrets_clone
+                ).await;
+
+                match &zip_url {
                     Ok(url) => info!("Successfully uploaded zip to: {}", url),
-                    Err(e) => info!("Failed to upload zip to Wasabi: {} for file {}", e, zip_path.to_string_lossy()),
+                    Err(e) => info!(
+                        "Failed to upload zip to R2: {} for file {}",
+                        e,
+                        zip_path.to_string_lossy()
+                    ),
                 }
 
                 // creating the torrent
@@ -342,7 +376,7 @@ async fn repo_info(
 
                 let options = librqbit::CreateTorrentOptions {
                     name: Some(&bruh2),
-                    piece_length: Some(2_097_152),
+                    piece_length: Some(1_048_576),
                 };
 
                 let zip_metadata = std::fs::metadata(&zip_path).expect("Failed to get zip metadata");
@@ -361,31 +395,56 @@ async fn repo_info(
                 std::fs::write(&torrent_path, torrent_bytes).expect("Failed to write torrent file");
 
                 info!("Attempting to upload torrent file: {}", torrent_path.to_string_lossy());
-                match wasabi_upload(&torrent_path.to_string_lossy(), "muggingface.co", &torrents_dir, &state_clone, &secrets_clone).await {
-                    Ok(url) => info!("Successfully uploaded torrent to: {}", url),
-                    Err(e) => info!("Failed to upload torrent to Wasabi: {} for file {}", e, torrent_path.to_string_lossy()),
+                match r2_upload(
+                    &torrent_path.to_string_lossy(),   // or zip_path.to_str().unwrap()
+                    &state_clone,
+                    &secrets_clone
+                ).await {
+                    Ok(url) => info!("Successfully uploaded zip to: {}", url),
+                    Err(e) => info!(
+                        "Failed to upload zip to R2: {} for file {}",
+                        e,
+                        torrent_path.to_string_lossy()
+                    ),
                 }
 
-                let bencode_val =
-                    Value::from_bencode(&bytes_clone).expect("Failed to parse bencode");
-                let dict = match bencode_val {
+                let bencode_value = Value::from_bencode(&bytes_clone).expect("Failed to parse bencode");
+
+                let file_name = zip_path
+                    .file_name()
+                    .and_then(|f| f.to_str())
+                    .expect("Failed to get file name");
+
+                let web_seed_url = format!("https://gerbil.muggingface.co/{}", file_name);
+
+                let mut dict = match bencode_value {
                     Value::Dict(d) => d,
                     _ => panic!("Invalid torrent format"),
                 };
-
-                let info_val = dict
-                    .iter()
-                    .find(|(k, _)| k.as_ref() == b"info")
-                    .map(|(_, v)| v.clone())
-                    .expect("No info dict found");
-                // formatting the hash
+                
+                dict.insert(
+                    Cow::Borrowed(b"url-list"),
+                    Value::Bytes(Cow::Owned(web_seed_url.as_bytes().to_vec())),
+                );
+                
+                let modified_bencode = Value::Dict(dict).to_bencode().expect("Failed to re-bencode");
+                let modified_bencode_clone = modified_bencode.clone();
+                std::fs::write(&torrent_path, &modified_bencode_clone).expect("Failed to write modified torrent");
+                
+                let bencode_value = Value::from_bencode(&modified_bencode)
+                    .expect("Failed to re-parse modified bencode");
+                let info_val = match bencode_value {
+                    Value::Dict(d) => d.get(b"info" as &[u8]).cloned().expect("No info dict found"),
+                    _ => panic!("Invalid torrent format"),
+                };
+                
                 let mut info_buf = Vec::new();
                 Write::write_all(
                     &mut info_buf,
                     &info_val.to_bencode().expect("Failed to encode info dict"),
                 )
                 .expect("Failed to write to buffer");
-
+                
                 let mut hasher = Sha1::new();
                 hasher.update(&info_buf);
                 let info_hash = hasher.finalize();
@@ -398,15 +457,19 @@ async fn repo_info(
                     NON_ALPHANUMERIC,
                 )
                 .to_string();
+                 let tracker_encoded = utf8_percent_encode(
+                "udp://tracker.openbittorrent.com:80/announce",
+                NON_ALPHANUMERIC
+                ).to_string();
+                let ws_encoded = utf8_percent_encode(&web_seed_url, NON_ALPHANUMERIC).to_string();
                 let magnet_link = format!(
-                    "magnet:?xt=urn:btih:{}&dn={}&tr={}",
-                    info_hash_hex,
-                    name_encoded,
-                    utf8_percent_encode(
-                        "udp://tracker.openbittorrent.com:80/announce",
-                        NON_ALPHANUMERIC
-                    )
+                    "magnet:?xt=urn:btih:{info_hash}&dn={dn}&tr={tr}&ws={ws}",
+                    info_hash = info_hash_hex,
+                    dn = name_encoded,
+                    tr = tracker_encoded,
+                    ws = ws_encoded,
                 );
+
 
                 // inserting the magnet link into memory so we can use it later
                 {
