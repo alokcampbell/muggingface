@@ -1,15 +1,43 @@
 use actix_files::{Files, NamedFile};
 use actix_web::middleware::Logger;
-use actix_web::{HttpRequest, HttpResponse};
 use actix_web::{
     get,
     web::{self, ServiceConfig, Bytes},
-    Responder,
+    HttpRequest, HttpResponse, Responder,
 };
-use bendy::decoding::FromBencode;
-use bendy::encoding::ToBencode;
-use bendy::value::Value;
+use shuttle_actix_web::ShuttleActixWeb;
+
+// aws
+use aws_config::meta::region::RegionProviderChain;
+use aws_sdk_s3::{
+    config::{Builder as S3ConfigBuilder, Credentials, Region},
+    primitives::ByteStream,
+    Client,
+    types::ObjectCannedAcl,
+};
+
+// file system + io
 use directories::BaseDirs;
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    env,
+    error::Error,
+    fs::File as StdFile,
+    io::Write,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
+use tokio::{
+    fs::{self, File},
+    io::AsyncWriteExt,
+};
+use walkdir::WalkDir;
+use zip::{ZipWriter, write::FileOptions};
+
+// misc
+use async_stream;
+use bendy::{decoding::FromBencode, encoding::ToBencode, value::Value};
 use hex;
 use hf_hub::api::sync::Api;
 use librqbit;
@@ -17,41 +45,9 @@ use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use reqwest;
 use serde_json;
 use sha1::{Digest, Sha1};
-use shuttle::rand::thread_rng;
-use shuttle_actix_web::ShuttleActixWeb;
-use std::collections::HashMap;
-use std::env;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::Mutex;
-use tokio;
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
+use shuttle_runtime::{SecretStore, Secrets};
+use tera::{Context, Tera};
 use tracing::info;
-use zip::{ZipWriter, write::FileOptions};
-use std::fs::File as StdFile;
-use std::io::Write;
-use walkdir::WalkDir;
-use shuttle_runtime::Secrets;
-use shuttle_runtime::SecretStore;
-use tera::{Tera, Context};
-use async_stream;
-use aws_config::meta::region::RegionProviderChain;
-use aws_sdk_s3::{
-    config::{Builder as S3ConfigBuilder, Region},
-    primitives::ByteStream,
-    Client,
-    types::ObjectCannedAcl,
-    error::SdkError,
-    operation::head_object::HeadObjectError,
-};
-use aws_sdk_s3::config::Credentials;
-use std::path::Path;
-use tokio::fs;
-use std::borrow::Cow;
-use std::error::Error;
-use librqbit::torrent_from_bytes;
-use librqbit::TorrentMetaV1Info;
 
 fn render_loading_html_response(full_repo: &str, sha: &str, tera: &Tera) -> String {
     let mut context = Context::new();
@@ -334,17 +330,6 @@ async fn repo_info(
                     );
                     let response = reqwest::get(&url).await.expect("Failed to access file");
 
-                //    // if let Some(content_length) = response.content_length() {
-                //         // only needing for testing otherwise wont download full model
-                //         if content_length > 1_073_741_824 {
-                //             info!(
-                //                 "File {} is too big ({} bytes)",
-                //                 file.rfilename, content_length
-                //             );
-                //             continue;
-                //         }
-                //     }
-
                     let bytes = response.bytes().await.expect("Failed to download file");
                     let mut file = File::create(&file_path)
                         .await
@@ -583,7 +568,7 @@ async fn progress_sse(
     info!("SSE connection established for {}", full_repo);
     
     let mut last_progress = 0;
-    let mut last_magnet_link = None;
+    let last_magnet_link = None;
     let mut last_status = String::new();
     
     let stream = async_stream::stream! {
@@ -591,7 +576,6 @@ async fn progress_sse(
         let status = "Starting download...";
         let event = format!("event: status\ndata: {}\n\n", status);
         yield Ok::<Bytes, std::io::Error>(Bytes::from(event));
-        last_status = status.to_string();
 
         loop {
             let (downloaded, total) = {
@@ -658,7 +642,6 @@ async fn progress_sse(
                     // Send completion event
                     let event = format!("event: complete\ndata: {}\n\n", completion_data.to_string());
                     yield Ok::<Bytes, std::io::Error>(Bytes::from(event));
-                    last_magnet_link = Some(link);
                     break;
                 }
             }
