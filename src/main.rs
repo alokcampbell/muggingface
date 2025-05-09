@@ -17,6 +17,7 @@ use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use reqwest;
 use serde_json;
 use sha1::{Digest, Sha1};
+use shuttle::rand::thread_rng;
 use shuttle_actix_web::ShuttleActixWeb;
 use std::collections::HashMap;
 use std::env;
@@ -49,6 +50,8 @@ use std::path::Path;
 use tokio::fs;
 use std::borrow::Cow;
 use std::error::Error;
+use librqbit::torrent_from_bytes;
+use librqbit::TorrentMetaV1Info;
 
 fn render_loading_html_response(full_repo: &str, sha: &str, tera: &Tera) -> String {
     let mut context = Context::new();
@@ -130,7 +133,6 @@ async fn r2_object_exists(
         Err(e) => Err(Box::new(e)), // other errors 
     }
 }
-
 
 async fn r2_upload(
     file_path: &str,
@@ -214,6 +216,7 @@ fn magnet_link(url: String) -> String {
     )
 }
 
+
 #[get("/{user}/{repo}/{tail:.*}")]
 async fn repo_info(
     path: web::Path<(String, String, String)>,
@@ -289,13 +292,8 @@ async fn repo_info(
             match r2_object_exists(&zip_name, &secrets).await {
                 Ok(true) => {
                     println!("already exists, skipping upload");
-                    let magnet = state.magnet_links.lock().unwrap()
-                        .get(&full_repo)
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            let url = format!("https://gerbil.muggingface.co/{}/{}.zip", full_repo.replace("/", "-"), info.sha);
-                            magnet_link(url)
-                        });
+                    let magnet: String = format!("https://gerbil.muggingface.co/{}.torrent", info.sha);
+
                     return HttpResponse::Ok().content_type("text/html").body(
                         render_finished_html_response(&full_repo, &info.sha, &file_names, &magnet, &state.tera),
                     );
