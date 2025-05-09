@@ -41,11 +41,14 @@ use aws_sdk_s3::{
     primitives::ByteStream,
     Client,
     types::ObjectCannedAcl,
+    error::SdkError,
+    operation::head_object::HeadObjectError,
 };
 use aws_sdk_s3::config::Credentials;
 use std::path::Path;
 use tokio::fs;
 use std::borrow::Cow;
+use std::error::Error;
 
 fn render_loading_html_response(full_repo: &str, sha: &str, tera: &Tera) -> String {
     let mut context = Context::new();
@@ -72,6 +75,60 @@ fn render_finished_html_response(
 #[get("/")]
 async fn index() -> impl Responder {
     NamedFile::open(PathBuf::from("static/index.html"))
+}
+
+async fn r2_object_exists(
+    object_key: &str,
+    secrets: &SecretStore,
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    let access_key = secrets
+        .get("AWS_ACCESS_KEY_ID")
+        .ok_or("Missing AWS_ACCESS_KEY_ID")?;
+    let secret_key = secrets
+        .get("AWS_SECRET_ACCESS_KEY")
+        .ok_or("Missing AWS_SECRET_ACCESS_KEY")?;
+    let account_id = secrets
+        .get("CLOUDFLARE_ACCOUNT_ID")
+        .ok_or("Missing CLOUDFLARE_ACCOUNT_ID")?;
+
+    // endpoint + bucket name
+    let bucket_name = "gerbiltestman";
+    let endpoint = format!("https://{}.r2.cloudflarestorage.com", account_id);
+
+    let region_provider = RegionProviderChain::first_try(Region::new("auto"))
+        .or_default_provider()
+        .or_else(Region::new("us-east-1"));
+    let shared_config = aws_config::from_env()
+        .region(region_provider)
+        .credentials_provider(Credentials::new(
+            access_key.clone(),
+            secret_key.clone(),
+            None,
+            None,
+            "custom",
+        ))
+        .load()
+        .await;
+
+    let s3_conf = S3ConfigBuilder::from(&shared_config)
+        .endpoint_url(endpoint)
+        .force_path_style(true)
+        .build();
+    let client = Client::from_conf(s3_conf);
+    // finding the object
+    match client
+        .head_object()
+        .bucket(bucket_name)
+        .key(object_key)
+        .send()
+        .await
+    {
+        Ok(_) => Ok(true), // 200 
+        Err(e) if e.to_string().contains("NotFound") => {
+            Ok(false) // 404
+        }
+        Err(e) => Err(Box::new(e)), // other errors 
+    }
 }
 
 
@@ -175,7 +232,7 @@ async fn repo_info(
             };
             // getting the total size of the repo
             let mut total_size = 0u64;
-
+            let zip_name = format!("{}-{}.zip", full_repo.replace("/", "-"), info.sha);
             for file in &info.siblings {
                 let url = format!(
                     "https://huggingface.co/{}/resolve/main/{}?download=true",
@@ -229,16 +286,25 @@ async fn repo_info(
             let target_dir: PathBuf = PathBuf::from(user_home)
                 .join("data")
                 .join(format!("{}-{}", full_repo, info.sha));
-            if target_dir.exists() {
-                let torrents_dir = target_dir.parent().unwrap().join("Torrents");
-                let torrent_path = torrents_dir.join(format!("{}.torrent", info.sha));
-                if torrent_path.exists() {
-                    let magnet_link = state.magnet_links.lock().unwrap().get(&full_repo).cloned().unwrap_or_else(|| {
-                        let url = format!("https://muggingface.co/{}/{}", full_repo, info.sha);
-                        magnet_link(url)
-                    });
-                    let html2 = render_finished_html_response(&full_repo, &info.sha, &file_names, &magnet_link, &state.tera);
-                    return HttpResponse::Ok().content_type("text/html").body(html2);
+            match r2_object_exists(&zip_name, &secrets).await {
+                Ok(true) => {
+                    println!("already exists, skipping upload");
+                    let magnet = state.magnet_links.lock().unwrap()
+                        .get(&full_repo)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            let url = format!("https://gerbil.muggingface.co/{}/{}.zip", full_repo.replace("/", "-"), info.sha);
+                            magnet_link(url)
+                        });
+                    return HttpResponse::Ok().content_type("text/html").body(
+                        render_finished_html_response(&full_repo, &info.sha, &file_names, &magnet, &state.tera),
+                    );
+                }
+                Ok(false) => {
+                    println!("continuing with upload...");
+                }
+                Err(e) => {
+                    return HttpResponse::InternalServerError().body(e.to_string());
                 }
             }
 
@@ -330,7 +396,6 @@ async fn repo_info(
                 std::fs::create_dir_all(&zip_dir)
                     .expect("Failed to create Zips directory");
 
-                let zip_name = format!("{}-{}.zip", full_repo_clone.replace("/", "-"), info_clone.sha);
                 let zip_path = zip_dir.join(&zip_name);
                 let zip_file = StdFile::create(&zip_path).expect("Failed to create zip file");
                 let mut zip = ZipWriter::new(zip_file);
