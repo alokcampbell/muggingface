@@ -262,9 +262,13 @@ async fn repo_info(
             let file_names: Vec<String> = info.siblings.iter().map(|f| f.rfilename.clone()).collect();
             // getting the home directory
             let user_home = base_dirs.home_dir();
-            let target_dir: PathBuf = PathBuf::from(user_home)
-                .join("data")
-                .join(format!("{}-{}", full_repo, info.sha));
+            let target_dir: PathBuf = user_home
+            .join("data")
+            .join(format!("{}-{}", full_repo, info.sha));
+        
+             if !target_dir.exists() {
+                fs::create_dir_all(&target_dir).await.expect("Failed to create directory");
+            }
             match r2_object_exists(&zip_name, &secrets).await {
                 Ok(true) => {
                     println!("already exists, skipping upload");
@@ -278,7 +282,7 @@ async fn repo_info(
                     println!("continuing with upload...");
                 }
                 Err(e) => {
-                    return HttpResponse::InternalServerError().body(e.to_string());
+                    return HttpResponse::InternalServerError().body("r2 object does not exist");
                 }
             }
 
