@@ -193,7 +193,7 @@ async fn r2_upload(
     Ok(file_url)
 }
 
-#[get("/{user}/{repo}/{tail:.*}")]
+#[get("/{user}/{repo}{tail:.*}")]
 async fn repo_info(
     path: web::Path<(String, String, String)>,
     state: web::Data<Arc<AppState>>,
