@@ -38,13 +38,10 @@ use zip::{ZipWriter, write::FileOptions};
 // misc
 use async_stream;
 use bendy::{decoding::FromBencode, encoding::ToBencode, value::Value};
-use hex;
 use hf_hub::api::sync::Api;
 use librqbit;
-use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use reqwest;
 use serde_json;
-use sha1::{Digest, Sha1};
 use shuttle_runtime::{SecretStore, Secrets};
 use tera::{Context, Tera};
 use tracing::info;
@@ -132,7 +129,6 @@ async fn r2_object_exists(
 
 async fn r2_upload(
     file_path: &str,
-    state: &Arc<AppState>,
     secrets: &SecretStore,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let access_key = secrets
@@ -185,33 +181,17 @@ async fn r2_upload(
         .acl(ObjectCannedAcl::Private)
         .send()
         .await?;
-    let proxy = "gerbil.muggingface.co";
+    //  let proxy = "gerbil.muggingface.co";
     let file_url = format!("{}/{}/{}", endpoint_str, bucket_name, object_key);
-    let file_url2 = format!("{}/{}", proxy, object_key);
-    let magnet = magnet_link(file_url2.clone());
-    {
-        let mut links = state.magnet_links.lock().unwrap();
-        links.insert(file_url2.clone(), magnet);
-    }
+    //  let file_url2 = format!("{}/{}", proxy, object_key);
+    // let magnet = magnet_link(file_url2.clone());
+    // {
+    //     let mut links = state.magnet_links.lock().unwrap();
+    //     links.insert(file_url2.clone(), magnet);
+    // }
 
     Ok(file_url)
 }
-
-
-fn magnet_link(url: String) -> String {
-    let mut hasher = Sha1::new();
-    hasher.update(url.as_bytes());
-    let info_hash = hasher.finalize();
-    let info_hash_hex = hex::encode(info_hash);
-    let name_encoded = utf8_percent_encode(&url, NON_ALPHANUMERIC).to_string();
-    format!(
-        "magnet:?xt=urn:btih:{}&dn={}&tr={}",
-        info_hash_hex,
-        name_encoded,
-        utf8_percent_encode("udp://tracker.openbittorrent.com:80/announce", NON_ALPHANUMERIC)
-    )
-}
-
 
 #[get("/{user}/{repo}/{tail:.*}")]
 async fn repo_info(
@@ -406,7 +386,6 @@ async fn repo_info(
                 info!("Attempting to upload zip file: {}", zip_path.to_string_lossy());
                 let zip_url = r2_upload(
                     &zip_path.to_string_lossy(),
-                    &state_clone,
                     &secrets_clone
                 ).await;
 
@@ -445,7 +424,6 @@ async fn repo_info(
                 info!("Attempting to upload torrent file: {}", torrent_path.to_string_lossy());
                 match r2_upload(
                     &torrent_path.to_string_lossy(),   // or zip_path.to_str().unwrap()
-                    &state_clone,
                     &secrets_clone
                 ).await {
                     Ok(url) => info!("Successfully uploaded zip to: {}", url),
@@ -493,37 +471,37 @@ async fn repo_info(
                 )
                 .expect("Failed to write to buffer");
                 
-                let mut hasher = Sha1::new();
-                hasher.update(&info_buf);
-                let info_hash = hasher.finalize();
-                let info_hash_hex = hex::encode(&info_hash);
+         //       let mut hasher = Sha1::new();
+         //       hasher.update(&info_buf);
+         //       let info_hash = hasher.finalize();
+         //       let info_hash_hex = hex::encode(&info_hash);
 
                 // creating magnet link
 
-                let name_encoded = utf8_percent_encode(
-                    &format!("{}-{}", full_repo_clone, info_clone.sha),
-                    NON_ALPHANUMERIC,
-                )
-                .to_string();
-                 let tracker_encoded = utf8_percent_encode(
-                "udp://tracker.openbittorrent.com:80/announce",
-                NON_ALPHANUMERIC
-                ).to_string();
-                let ws_encoded = utf8_percent_encode(&web_seed_url, NON_ALPHANUMERIC).to_string();
-                let magnet_link = format!(
-                    "magnet:?xt=urn:btih:{info_hash}&dn={dn}&tr={tr}&ws={ws}",
-                    info_hash = info_hash_hex,
-                    dn = name_encoded,
-                    tr = tracker_encoded,
-                    ws = ws_encoded,
-                );
+       //         let name_encoded = utf8_percent_encode(
+       //             &format!("{}-{}", full_repo_clone, info_clone.sha),
+       //             NON_ALPHANUMERIC,
+       //         )
+       //         .to_string();
+       //         let tracker_encoded = utf8_percent_encode(
+       //         "udp://tracker.openbittorrent.com:80/announce",
+       //         NON_ALPHANUMERIC
+       //         ).to_string();
+       //         let ws_encoded = utf8_percent_encode(&web_seed_url, NON_ALPHANUMERIC).to_string();
+       //         let magnet_link = format!(
+       //             "magnet:?xt=urn:btih:{info_hash}&dn={dn}&tr={tr}&ws={ws}",
+       //             info_hash = info_hash_hex,
+       //             dn = name_encoded,
+       //             tr = tracker_encoded,
+       //             ws = ws_encoded,
+       //         );
 
 
                 // inserting the magnet link into memory so we can use it later
-                {
-                    let mut map = state_clone.magnet_links.lock().unwrap();
-                    map.insert(full_repo_clone.clone(), magnet_link.clone());
-                }
+                // {
+                //     let mut map = state_clone.magnet_links.lock().unwrap();
+                //     map.insert(full_repo_clone.clone(), magnet_link.clone());
+                // }
             });
             return HttpResponse::Ok().content_type("text/html").body(
                 render_loading_html_response(&full_repo_for_response, &sha_for_response, &state.tera),
