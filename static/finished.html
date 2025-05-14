@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ full_repo }}</title>
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+</head>
+
+<body>
+    <h1>{{ full_repo }}</h1>
+    <h2>SHA: {{ sha }}</h2>
+    <h2>Files:</h2>
+    <ul>
+        {% for file in file_names %}
+        <li>{{ file }}</li>
+        {% endfor %}
+    </ul>
+    <div>
+        <h3>muggingface.co</h3>
+        <h3><a href="{{ magnet_link }}">DOWNLOAD TORRENT</a></h3>
+        <img src="/static/muggingface_large.png" alt="muggingface.co" style="max-width: 10%; height: auto;">
+    </div>
+</body>
+
+</html>

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ full_repo }}</title>
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <style>
+        #p-container {
+            width: 100%;
+            background-color: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        #p-bar {
+            width: 0%;
+            height: 20px;
+            background-color: red;
+            text-align: center;
+            color: white;
+            line-height: 20px;
+            transition: width 0.4s ease;
+        }
+
+        #completion-message {
+            display: none;
+            margin-top: 20px;
+        }
+
+        #status-message {
+            margin: 10px 0;
+            font-weight: bold;
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="loading-content">
+        <h1>{{ full_repo }}</h1>
+        <h2>SHA: {{ sha }}</h2>
+        <div id="status-message">Starting download...</div>
+        <div id="p-container">
+            <div id="p-bar">0%</div>
+        </div>
+    </div>
+
+    <div id="completion-message">
+        <h1>{{ full_repo }}</h1>
+        <h2>SHA: {{ sha }}</h2>
+        <h2>Files:</h2>
+        <ul id="file-list"></ul>
+        <div>
+            <h3>muggingface.co</h3>
+            <h3><a id="magnet-link" href="#">MAGNET LINK</a></h3>
+            <img src="/static/muggingface_large.png" alt="muggingface.co" style="max-width: 10%; height: auto;">
+        </div>
+    </div>
+
+    <script>
+        const bar = document.getElementById("p-bar");
+        const loadingContent = document.getElementById("loading-content");
+        const completionMessage = document.getElementById("completion-message");
+        const fileList = document.getElementById("file-list");
+        const magnetLink = document.getElementById("magnet-link");
+        const statusMessage = document.getElementById("status-message");
+        let lastProgress = 0;
+
+        console.log("Setting up progress polling...");
+        const fullRepo = '{{ full_repo | safe }}';
+        const [user, repo] = fullRepo.split('/');
+        console.log("Polling for user:", user, "repo:", repo);
+        
+        const progressUrl = `${window.location.origin}/${user}/${repo}/progress_json`;
+        console.log("Polling URL:", progressUrl);
+
+        async function pollProgress() {
+            try {
+                const response = await fetch(progressUrl);
+                const data = await response.json();
+                console.log("Progress update:", data);
+                
+                const progress = (data.downloaded / data.total) * 100;
+                bar.style.width = `${progress}%`;
+                bar.textContent = `${progress.toFixed(1)}%`;
+                lastProgress = progress;
+
+                if (progress < 100) {
+                    setTimeout(pollProgress, 1000); 
+                } else {
+                    loadingContent.style.display = "none";
+                    completionMessage.style.display = "block";
+                }
+            } catch (error) {
+                console.error("Polling error:", error);
+                statusMessage.textContent = "Connection error. Please refresh the page.";
+            }
+        }
+
+        pollProgress();
+    </script>
+</body>
+
+</html>

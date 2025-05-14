@@ -6,15 +6,31 @@ edition = "2021"
 [dependencies]
 actix-files = "0.6.6"
 actix-web = "4.3.1"
+anyhow = "1.0.98"
+aws-config = "1.6.2"
+aws-sdk-s3 = "1.84.0"
+aws-types = "1.3.7"
+bendy = "0.3.3"
+chrono = "0.4.41"
+cloudflare-r2-rs = "0.6.8"
+directories = "6.0.0"
 hf-hub = { version = "0.3.2", features = ["tokio"] }
+librqbit = { git = "https://github.com/djmango/rqbit.git", package = "librqbit" }
+reqwest = { version = "0.12", features = ["json"] }
+serde = "1.0.219"
+shuttle = "0.8.0"
 shuttle-actix-web = "0.53.0"
 shuttle-runtime = "0.53.0"
+shuttle-secrets = "0.42.0"
+tera = "1.20.0"
 tokio = "1.26.0"
 tracing = "0.1.40"
-reqwest = { version = "0.12", features = ["json"] }
-bip_metainfo = "0.12.0"
 url = "2.5.4"
-librqbit = { git = "https://github.com/djmango/rqbit.git", package = "librqbit" }
+walkdir = "2.5.0"
+zip = "2.6.1"
+
+[dev-dependencies]
+cargo-watch = "8.4.0"
 
 [build]
 assets = [

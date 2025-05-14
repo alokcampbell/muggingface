@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>muggingface.com</title>
+  <title>muggingface.co</title>
   <link rel="icon" href="favicon.ico" type="image/x-icon" />
   <style>
 
@@ -21,6 +21,8 @@
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background: #f9f9f9;
       color: #333;
+      display: flex;
+      flex-direction: column;
     }
 
     p {
@@ -45,8 +47,6 @@
     }
 
     footer {
-      position: absolute;
-      bottom: 0;
       width: 100%;
       background: #eee;
       padding: 1rem;
@@ -72,14 +72,15 @@
     }
 
     .container {
+      flex: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      min-height: 100vh;
-      text-align: center;
       padding: 2rem;
-    }
+      text-align: center;
+      }
+
 
     .welcome {
       font-size: 3rem;
@@ -134,35 +135,43 @@
 
   <div class="gerbiltime" id="modal">
     <div class="gerbilcontent">
-      <h2>Welcome to muggingface.com</h2>
-      <p>something something fair use policy something something terms of use</p>
+      <h2>Welcome to muggingface.co</h2>
+      <p>
+        By clicking “Continue” you agree to our Terms of Service and Fair Use Policy. 
+        All content is provided “as‑is” with no changes, warranty, etc. The content is not owned by us, we are not liable for any issues.
+        You also consent to using the service at your own risk.
+      </p>
       <label>
         <input type="checkbox" id="agreeCheckbox" />
-        i agree to several gerbils being shipped to my house
+        I agree to the terms of service and fair use policy.
       </label>
       <button id="continueBtn" disabled>Continue</button>
     </div>
   </div>
+  
 
   <!-- main site thing thing thing -->
 
 
   <div class="container">
-    <div class="welcome">muggingface.com</div>
+    <div class="welcome">muggingface.co</div>
     <p>Simply follow our three step program:</p>
     <ol>
       <li>Go to a model on huggingface.co</li>
-      <li>Swap the URL from huggingface.co to muggingface.com</li>
+      <li>Swap the URL from huggingface.co to muggingface.co</li>
       <li>???</li>
       <li>Profit</li>
     </ol>
-    <img src="/static/muggingface_large.png" alt="muggingface.com" />
+    <img src="/static/muggingface_large.png" alt="muggingface.co" />
   </div>
 
   <!-- footer thing thing thing -->
 
   <footer>
-    &copy; made by big gerbil and little gerbil
+    &copy; made by
+    <a href="https://github.com/alokcampbell" target="_blank" rel="noopener">big gerbil</a>
+    and
+    <a href="https://github.com/djmango" target="_blank" rel="noopener">little gerbil</a>
   </footer>
 
   <!-- button checker / button listener thing thing thing -->

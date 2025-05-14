@@ -1,2 +1,2 @@
 # muggingface
-muggingface.com
+muggingface.co
