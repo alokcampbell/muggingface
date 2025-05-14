@@ -2,8 +2,8 @@ use actix_files::{Files, NamedFile};
 use actix_web::middleware::Logger;
 use actix_web::{
     get,
-    web::{self, ServiceConfig, Bytes},
-    HttpRequest, HttpResponse, Responder,
+    web::{self, ServiceConfig, Json},
+    Error as ActixError, HttpResponse, Responder
 };
 use shuttle_actix_web::ShuttleActixWeb;
 
@@ -26,7 +26,7 @@ use std::{
     fs::File as StdFile,
     io::Write,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, PoisonError},
 };
 use tokio::{
     fs::{self, File},
@@ -34,17 +34,51 @@ use tokio::{
 };
 use walkdir::WalkDir;
 use zip::{ZipWriter, write::FileOptions};
-
 // misc
-use async_stream;
+// use anyhow::Result;
 use bendy::{decoding::FromBencode, encoding::ToBencode, value::Value};
 use hf_hub::api::sync::Api;
 use librqbit;
 use reqwest;
-use serde_json;
 use shuttle_runtime::{SecretStore, Secrets};
 use tera::{Context, Tera};
-use tracing::info;
+use tracing::{info, error};
+
+const DATA_DIR: &str = "data";
+const TORRENTS_DIR: &str = "torrents";
+const ZIPS_DIR: &str = "zips";
+const BUCKET_NAME: &str = "gerbiltestman";
+
+fn get_base_dir() -> Result<PathBuf, Box<dyn Error>> {
+    let base_dirs = BaseDirs::new()
+        .ok_or_else(|| "Could not determine home directory")?;
+    Ok(base_dirs.home_dir().join(DATA_DIR))
+}
+
+fn initialize_server_directories() -> Result<(), Box<dyn Error>> {
+    let base_dir = get_base_dir()?;
+    let torrents_dir = base_dir.join(TORRENTS_DIR);
+    let zips_dir = base_dir.join(ZIPS_DIR);
+    
+    for dir in &[&base_dir, &torrents_dir, &zips_dir] {
+        if !dir.exists() {
+            info!("Creating directory: {}", dir.display());
+            std::fs::create_dir_all(dir)
+                .map_err(|e| format!("Failed to create directory {}: {}", dir.display(), e))?;
+        }
+    }
+    info!("Server directories initialized successfully");
+    Ok(())
+}
+
+fn ensure_directory_exists(path: &Path) -> Result<(), Box<dyn Error>> {
+    if !path.exists() {
+        info!("Creating directory: {}", path.display());
+        std::fs::create_dir_all(path)
+            .map_err(|e| format!("Failed to create directory {}: {}", path.display(), e))?;
+    }
+    Ok(())
+}
 
 fn render_loading_html_response(full_repo: &str, sha: &str, tera: &Tera) -> String {
     let mut context = Context::new();
@@ -75,36 +109,32 @@ async fn index() -> impl Responder {
 
 async fn r2_object_exists(
     object_key: &str,
-    secrets: &SecretStore,
+    state: &Arc<AppState>,
 ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-    let access_key = secrets
-        .get("AWS_ACCESS_KEY_ID")
-        .ok_or("Missing AWS_ACCESS_KEY_ID")?;
-    let secret_key = secrets
-        .get("AWS_SECRET_ACCESS_KEY")
-        .ok_or("Missing AWS_SECRET_ACCESS_KEY")?;
-    let account_id = secrets
-        .get("CLOUDFLARE_ACCOUNT_ID")
-        .ok_or("Missing CLOUDFLARE_ACCOUNT_ID")?;
+    info!("pre load upload");
+    let access_key = &state.api_key;
+    let secret_key = &state.api_key2;
+    let account_id = &state.api_key3;
+    info!("post load upload");
 
     // endpoint + bucket name
-    let bucket_name = "gerbiltestman";
     let endpoint = format!("https://{}.r2.cloudflarestorage.com", account_id);
 
-    let region_provider = RegionProviderChain::first_try(Region::new("auto"))
-        .or_default_provider()
-        .or_else(Region::new("us-east-1"));
     let shared_config = aws_config::from_env()
-        .region(region_provider)
-        .credentials_provider(Credentials::new(
-            access_key.clone(),
-            secret_key.clone(),
-            None,
-            None,
-            "custom",
-        ))
+        .credentials_provider(
+            aws_sdk_s3::config::Credentials::new(
+                access_key,
+                secret_key,
+                None, // no session token
+                None,
+                "custom",
+            )
+        )
+        .region("auto")
         .load()
         .await;
+    
+    info!("config loaded");
 
     let s3_conf = S3ConfigBuilder::from(&shared_config)
         .endpoint_url(endpoint)
@@ -112,34 +142,41 @@ async fn r2_object_exists(
         .build();
     let client = Client::from_conf(s3_conf);
     // finding the object
+    info!("pre head object");
     match client
         .head_object()
-        .bucket(bucket_name)
+        .bucket(BUCKET_NAME)
         .key(object_key)
         .send()
         .await
     {
-        Ok(_) => Ok(true), // 200 
-        Err(e) if e.to_string().contains("NotFound") => {
-            Ok(false) // 404
+        Ok(_) => {
+            info!("object exists");
+            Ok(true)
+        },
+        // Err(e) if e.to_string().contains("NotFound") ||
+        // e.to_string().contains("NoSuchKey") ||
+        // e.to_string().contains("404") ||
+        // e.to_string().contains("NoSuchObject") ||
+        // e.to_string().contains("ResourceNotFound") => {
+        //     info!("object not found: {}", e);
+        //     Ok(false)
+        // }
+        Err(e) => {
+            info!("error checking object: {}", e.to_string());
+          //  Err(Box::new(e))
+          Ok(false)
         }
-        Err(e) => Err(Box::new(e)), // other errors 
     }
 }
 
 async fn r2_upload(
     file_path: &str,
-    secrets: &SecretStore,
+    state: &Arc<AppState>,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let access_key = secrets
-        .get("AWS_ACCESS_KEY_ID")
-        .ok_or("Missing AWS_ACCESS_KEY_ID")?;
-    let secret_key = secrets
-        .get("AWS_SECRET_ACCESS_KEY")
-        .ok_or("Missing AWS_SECRET_ACCESS_KEY")?;
-    let account_id = secrets
-        .get("CLOUDFLARE_ACCOUNT_ID")
-        .ok_or("Missing CLOUDFLARE_ACCOUNT_ID")?;
+    let access_key = &state.api_key;
+    let secret_key = &state.api_key2;
+    let account_id = &state.api_key3;
     
     let bucket_name = "gerbiltestman";
     let endpoint_str = format!("https://{}.r2.cloudflarestorage.com", account_id);
@@ -151,8 +188,8 @@ async fn r2_upload(
         .region(region_provider)
         .credentials_provider(
             Credentials::new(
-                access_key,
-                secret_key,
+                access_key.clone(),
+                secret_key.clone(),
                 None,
                 None,
                 "custom"
@@ -181,14 +218,8 @@ async fn r2_upload(
         .acl(ObjectCannedAcl::Private)
         .send()
         .await?;
-    //  let proxy = "gerbil.muggingface.co";
+
     let file_url = format!("{}/{}/{}", endpoint_str, bucket_name, object_key);
-    //  let file_url2 = format!("{}/{}", proxy, object_key);
-    // let magnet = magnet_link(file_url2.clone());
-    // {
-    //     let mut links = state.magnet_links.lock().unwrap();
-    //     links.insert(file_url2.clone(), magnet);
-    // }
 
     Ok(file_url)
 }
@@ -197,7 +228,6 @@ async fn r2_upload(
 async fn repo_info(
     path: web::Path<(String, String, String)>,
     state: web::Data<Arc<AppState>>,
-    secrets: web::Data<SecretStore>,
 ) -> impl Responder {
     let (user, repo, _tail) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
@@ -205,10 +235,28 @@ async fn repo_info(
     let repo = state.hf_api.model(full_repo.clone());
     match repo.info() {
         Ok(info) => {
-            let base_dirs = match BaseDirs::new() {
-                Some(b) => b,
-                None => return HttpResponse::InternalServerError().body("something messed ups"),
+            // Get base directory from user's home
+            let base_dir = match get_base_dir() {
+                Ok(dir) => dir,
+                Err(e) => {
+                    error!("Failed to get base directory: {}", e);
+                    return HttpResponse::InternalServerError()
+                        .body("Failed to access data directory");
+                }
             };
+            
+            let torrents_dir = base_dir.join(TORRENTS_DIR);
+            let zips_dir = base_dir.join(ZIPS_DIR);
+            
+            // Create directories if they don't exist
+            for dir in &[&base_dir, &torrents_dir, &zips_dir] {
+                if let Err(e) = ensure_directory_exists(dir) {
+                    error!("Failed to create directory {}: {}", dir.display(), e);
+                    return HttpResponse::InternalServerError()
+                        .body(format!("Failed to create required directory: {}", e));
+                }
+            }
+
             // getting the total size of the repo
             let mut total_size = 0u64;
             let zip_name = format!("{}-{}.zip", full_repo.replace("/", "-"), info.sha);
@@ -220,7 +268,7 @@ async fn repo_info(
                 // building client for getting the size of the file
                 let client = reqwest::Client::builder()
                     .user_agent("muggingface/1.0")
-                    .redirect(reqwest::redirect::Policy::limited(10))
+                    .redirect(reqwest::redirect::Policy::limited(20))
                     .build()
                     .unwrap();
                 // sending request + header
@@ -259,19 +307,22 @@ async fn repo_info(
                 let mut sizes = state.total_sizes.lock().unwrap();
                 sizes.insert(full_repo.clone(), total_size);
             }
+            
             let file_names: Vec<String> = info.siblings.iter().map(|f| f.rfilename.clone()).collect();
-            // getting the home directory
-            let user_home = base_dirs.home_dir();
-            let target_dir: PathBuf = user_home
-            .join("data")
-            .join(format!("{}-{}", full_repo, info.sha));
-        
-             if !target_dir.exists() {
-                fs::create_dir_all(&target_dir).await.expect("Failed to create directory");
+            
+            // Use server-appropriate paths
+            let target_dir = base_dir.join(format!("{}-{}", full_repo.replace("/", "-"), info.sha));
+            
+            // Ensure target directory exists
+            if let Err(e) = ensure_directory_exists(&target_dir) {
+                error!("Failed to create target directory {}: {}", target_dir.display(), e);
+                return HttpResponse::InternalServerError()
+                    .body(format!("Failed to create target directory: {}", e));
             }
-            match r2_object_exists(&zip_name, &secrets).await {
+
+            match r2_object_exists(&zip_name, &state).await {
                 Ok(true) => {
-                    println!("already exists, skipping upload");
+                    info!("File already exists in R2, skipping upload");
                     let magnet: String = format!("https://gerbil.muggingface.co/{}.torrent", info.sha);
 
                     return HttpResponse::Ok().content_type("text/html").body(
@@ -279,14 +330,13 @@ async fn repo_info(
                     );
                 }
                 Ok(false) => {
-                    println!("continuing with upload...");
+                    info!("File not found in R2, continuing with download...");
                 }
                 Err(e) => {
-                    return HttpResponse::InternalServerError().body("r2 object does not exist");
+                    error!("Error checking R2: {}", e);
+                    return HttpResponse::InternalServerError().body("Error checking R2 storage");
                 }
             }
-
-            std::fs::create_dir_all(&target_dir).expect("Failed to create directory");
 
             let full_repo_for_response = full_repo.clone();
             let sha_for_response = info.sha.clone();
@@ -294,7 +344,6 @@ async fn repo_info(
             let info_clone = info.clone();
             let full_repo_clone = full_repo.clone();
             let state_clone = state.clone();
-            let secrets_clone = secrets.clone();
             
             tokio::spawn(async move {
                 for file in &info_clone.siblings {
@@ -302,9 +351,10 @@ async fn repo_info(
                     let file_path = target_dir_clone.join(&file.rfilename);
 
                     if let Some(parent) = file_path.parent() {
-                        tokio::fs::create_dir_all(parent)
-                            .await
-                            .expect("Failed to create subdirectories");
+                        if let Err(e) = ensure_directory_exists(parent) {
+                            error!("Failed to create parent directory {}: {}", parent.display(), e);
+                            continue;
+                        }
                     }
 
                     // actual download time (get the website, download the file, create the file, write the file.)
@@ -324,7 +374,7 @@ async fn repo_info(
                         let mut progress = match state_clone.download_progress.lock() {
                             Ok(guard) => guard,
                             Err(_) => {
-                                info!("Mutex was poisoned, skipping progress update");
+                                error!("Mutex was poisoned, skipping progress update");
                                 return;
                             }
                         };
@@ -335,35 +385,17 @@ async fn repo_info(
                     }
                 }
 
-                // creating directories for torrents
-                let torrents_dir = if let Some(parent) = target_dir_clone.parent() {
-                    parent.join("Torrents")
-                } else {
-                    return;
-                };
-
-                std::fs::create_dir_all(&torrents_dir)
-                    .expect("Failed to create Torrents directory");
-
+                // Use the server-appropriate paths for torrents and zips
                 let torrent_path = torrents_dir.join(format!("{}.torrent", info_clone.sha));
+                let zip_path = zips_dir.join(&zip_name);
 
                 if let Some(torrent_parent) = torrent_path.parent() {
-                    std::fs::create_dir_all(torrent_parent)
-                        .expect("Failed to create torrent directory");
-                } else {
-                    return;
+                    if let Err(e) = ensure_directory_exists(torrent_parent) {
+                        error!("Failed to create torrent directory {}: {}", torrent_parent.display(), e);
+                        return;
+                    }
                 }
 
-                let zip_dir = if let Some(parent) = target_dir_clone.parent() {
-                    parent.join("Zips")
-                } else {
-                    return;
-                };
-
-                std::fs::create_dir_all(&zip_dir)
-                    .expect("Failed to create Zips directory");
-
-                let zip_path = zip_dir.join(&zip_name);
                 let zip_file = StdFile::create(&zip_path).expect("Failed to create zip file");
                 let mut zip = ZipWriter::new(zip_file);
                 let options: FileOptions<()> = FileOptions::default().compression_method(zip::CompressionMethod::Stored);
@@ -390,7 +422,7 @@ async fn repo_info(
                 info!("Attempting to upload zip file: {}", zip_path.to_string_lossy());
                 let zip_url = r2_upload(
                     &zip_path.to_string_lossy(),
-                    &secrets_clone
+                    &state_clone
                 ).await;
 
                 match &zip_url {
@@ -428,7 +460,7 @@ async fn repo_info(
                 info!("Attempting to upload torrent file: {}", torrent_path.to_string_lossy());
                 match r2_upload(
                     &torrent_path.to_string_lossy(),   // or zip_path.to_str().unwrap()
-                    &secrets_clone
+                    &state_clone
                 ).await {
                     Ok(url) => info!("Successfully uploaded zip to: {}", url),
                     Err(e) => info!(
@@ -474,38 +506,6 @@ async fn repo_info(
                     &info_val.to_bencode().expect("Failed to encode info dict"),
                 )
                 .expect("Failed to write to buffer");
-                
-         //       let mut hasher = Sha1::new();
-         //       hasher.update(&info_buf);
-         //       let info_hash = hasher.finalize();
-         //       let info_hash_hex = hex::encode(&info_hash);
-
-                // creating magnet link
-
-       //         let name_encoded = utf8_percent_encode(
-       //             &format!("{}-{}", full_repo_clone, info_clone.sha),
-       //             NON_ALPHANUMERIC,
-       //         )
-       //         .to_string();
-       //         let tracker_encoded = utf8_percent_encode(
-       //         "udp://tracker.openbittorrent.com:80/announce",
-       //         NON_ALPHANUMERIC
-       //         ).to_string();
-       //         let ws_encoded = utf8_percent_encode(&web_seed_url, NON_ALPHANUMERIC).to_string();
-       //         let magnet_link = format!(
-       //             "magnet:?xt=urn:btih:{info_hash}&dn={dn}&tr={tr}&ws={ws}",
-       //             info_hash = info_hash_hex,
-       //             dn = name_encoded,
-       //             tr = tracker_encoded,
-       //             ws = ws_encoded,
-       //         );
-
-
-                // inserting the magnet link into memory so we can use it later
-                // {
-                //     let mut map = state_clone.magnet_links.lock().unwrap();
-                //     map.insert(full_repo_clone.clone(), magnet_link.clone());
-                // }
             });
             return HttpResponse::Ok().content_type("text/html").body(
                 render_loading_html_response(&full_repo_for_response, &sha_for_response, &state.tera),
@@ -520,124 +520,50 @@ async fn repo_info(
 async fn progress_json(
     path: web::Path<(String, String)>,
     state: web::Data<Arc<AppState>>,
-) -> impl Responder {
+    ) -> Result<Json<Progress>, ActixError> {
     let (user, repo) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
-    
-    let downloaded = {
-        let progress = state.download_progress.lock().unwrap();
-        progress.get(&full_repo).copied().unwrap_or(0)
-    };
-    
-    let total = {
-        let sizes = state.total_sizes.lock().unwrap();
-        sizes.get(&full_repo).copied().unwrap_or(1)
+
+    fn get_from_map<'a>(map: &'a Mutex<HashMap<String, u64>>, key: &str, default: u64) -> Result<u64, PoisonError<std::sync::MutexGuard<'a, HashMap<String, u64>>>> {
+        let guard = map.lock()?;
+        Ok(guard.get(key).copied().unwrap_or(default))
+    }
+
+    let downloaded = match get_from_map(&state.download_progress, &full_repo, 0) {
+        Ok(v) => v,
+        Err(_) => 0,
     };
 
-    info!("Progress for {}: {}/{} bytes", full_repo, downloaded, total);
+    let total = match get_from_map(&state.total_sizes, &full_repo, 1) {
+        Ok(v) => v,
+        Err(_) => 1,
+    };
+
+    info!(
+        target: "progress",
+        "{} → downloaded: {} / total: {}",
+        full_repo,
+        downloaded,
+        total
+    );
+
+    info!(
+    "Progress for {}: {}/{} bytes", 
+    full_repo, 
+    downloaded, 
+    total
+    );
     
-    HttpResponse::Ok().json(serde_json::json!({ "downloaded": downloaded, "total": total }))
+    Ok(web::Json(Progress {
+        downloaded,
+        total,
+    }))
 }
 
-#[get("/{user}/{repo}/progress_sse")]
-async fn progress_sse(
-    path: web::Path<(String, String)>,
-    state: web::Data<Arc<AppState>>,
-    _req: HttpRequest,
-) -> HttpResponse {
-    let (user, repo) = path.into_inner();
-    let full_repo = format!("{}/{}", user, repo);
-    info!("SSE connection established for {}", full_repo);
-    
-    let mut last_progress = 0;
-    let last_magnet_link = None;
-    let mut last_status = String::new();
-    
-    let stream = async_stream::stream! {
-        // Send initial status
-        let status = "Starting download...";
-        let event = format!("event: status\ndata: {}\n\n", status);
-        yield Ok::<Bytes, std::io::Error>(Bytes::from(event));
-
-        loop {
-            let (downloaded, total) = {
-                let progress = state.download_progress.lock().unwrap();
-                let sizes = state.total_sizes.lock().unwrap();
-                (
-                    progress.get(&full_repo).copied().unwrap_or(0),
-                    sizes.get(&full_repo).copied().unwrap_or(1)
-                )
-            };
-
-            let percent = if total > 0 {
-                ((downloaded as f64 / total as f64) * 100.0) as i32
-            } else {
-                0
-            };
-            
-            if percent != last_progress {
-                info!("Sending progress update for {}: {}% ({} bytes)", full_repo, percent, downloaded);
-                let event = format!("event: progress\ndata: {}\n\n", percent);
-                yield Ok::<Bytes, std::io::Error>(Bytes::from(event));
-                last_progress = percent;
-
-                // Update status based on progress
-                let status = if percent == 100 {
-                    "Creating torrent...".to_string()
-                } else {
-                    format!("Downloading: {}%", percent)
-                };
-                if status != last_status {
-                    let event = format!("event: status\ndata: {}\n\n", status);
-                    yield Ok::<Bytes, std::io::Error>(Bytes::from(event));
-                    last_status = status;
-                }
-            }
-
-            let magnet_link = {
-                let magnet_links = state.magnet_links.lock().unwrap();
-                magnet_links.get(&full_repo).cloned()
-            };
-
-            if let Some(link) = magnet_link {
-                if last_magnet_link.as_ref() != Some(&link) {
-                    info!("Sending completion event for {} with magnet link", full_repo);
-                    // Get file names from the repo info
-                    let file_names = {
-                        let repo = state.hf_api.model(full_repo.clone());
-                        match repo.info() {
-                            Ok(info) => info.siblings.iter().map(|f| f.rfilename.clone()).collect::<Vec<_>>(),
-                            Err(_) => Vec::new(),
-                        }
-                    };
-
-                    let completion_data = serde_json::json!({
-                        "magnet_link": link,
-                        "file_names": file_names
-                    });
-
-                    // Send final status
-                    let status = "Complete!";
-                    let event = format!("event: status\ndata: {}\n\n", status);
-                    yield Ok::<Bytes, std::io::Error>(Bytes::from(event));
-
-                    // Send completion event
-                    let event = format!("event: complete\ndata: {}\n\n", completion_data.to_string());
-                    yield Ok::<Bytes, std::io::Error>(Bytes::from(event));
-                    break;
-                }
-            }
-
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-    };
-
-    HttpResponse::Ok()
-        .content_type("text/event-stream")
-        .insert_header(("Cache-Control", "no-cache"))
-        .insert_header(("Connection", "keep-alive"))
-        .insert_header(("Access-Control-Allow-Origin", "*"))
-        .streaming(stream)
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Progress {
+    downloaded: u64,
+    total: u64,
 }
 
 // #[derive(Clone)]
@@ -647,10 +573,22 @@ struct AppState {
     download_progress: Mutex<HashMap<String, u64>>,
     total_sizes: Mutex<HashMap<String, u64>>,
     tera: Tera,
+    api_key: String,
+    api_key2: String,
+    api_key3: String,
 }
 
 #[shuttle_runtime::main]
 async fn main(#[Secrets] secrets: shuttle_runtime::SecretStore) -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clone + 'static> {
+    // Initialize server directories at startup
+    if let Err(e) = initialize_server_directories() {
+        error!("Failed to initialize server directories: {}", e);
+        // Continue anyway, as we'll try to create directories as needed
+    }
+
+    let api_key = secrets.get("AWS_ACCESS_KEY_ID").expect("Missing API key");
+    let api_key2 = secrets.get("AWS_SECRET_ACCESS_KEY").expect("Missing API key");
+    let api_key3 = secrets.get("CLOUDFLARE_ACCOUNT_ID").expect("Missing API key");
     let tera = Tera::new("static/**/*.html").expect("Failed to parse templates");
     let app_state = Arc::new(AppState {
         hf_api: Api::new().unwrap(),
@@ -658,6 +596,9 @@ async fn main(#[Secrets] secrets: shuttle_runtime::SecretStore) -> ShuttleActixW
         download_progress: Mutex::new(HashMap::new()),
         total_sizes: Mutex::new(HashMap::new()),
         tera,
+        api_key,
+        api_key2,
+        api_key3,
     });
     let config = move |cfg: &mut ServiceConfig| {
         cfg.service(
@@ -665,7 +606,6 @@ async fn main(#[Secrets] secrets: shuttle_runtime::SecretStore) -> ShuttleActixW
                 .service(index)
                 .service(Files::new("/static", "static/").index_file("index.html"))
                 .service(progress_json)
-                .service(progress_sse)
                 .service(repo_info)
                 .app_data(web::Data::new(app_state.clone()))
                 .app_data(web::Data::new(secrets))

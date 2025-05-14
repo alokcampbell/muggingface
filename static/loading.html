@@ -66,51 +66,41 @@
         const completionMessage = document.getElementById("completion-message");
         const fileList = document.getElementById("file-list");
         const magnetLink = document.getElementById("magnet-link");
-                const statusMessage = document.getElementById("status-message");
+        const statusMessage = document.getElementById("status-message");
         let lastProgress = 0;
 
-                console.log("Setting up SSE connection...");
-                const fullRepo = '{{ full_repo | safe }}';
-                const [user, repo] = fullRepo.split('/');
-                console.log("Connecting to SSE for user:", user, "repo:", repo);
-                const eventSource = new EventSource(`/${user}/${repo}/progress_sse`);
+        console.log("Setting up progress polling...");
+        const fullRepo = '{{ full_repo | safe }}';
+        const [user, repo] = fullRepo.split('/');
+        console.log("Polling for user:", user, "repo:", repo);
+        
+        const progressUrl = `${window.location.origin}/${user}/${repo}/progress_json`;
+        console.log("Polling URL:", progressUrl);
 
-                eventSource.addEventListener("status", (event) => {
-                    console.log("Status update:", event.data);
-                    statusMessage.textContent = event.data;
-                });
+        async function pollProgress() {
+            try {
+                const response = await fetch(progressUrl);
+                const data = await response.json();
+                console.log("Progress update:", data);
+                
+                const progress = (data.downloaded / data.total) * 100;
+                bar.style.width = `${progress}%`;
+                bar.textContent = `${progress.toFixed(1)}%`;
+                lastProgress = progress;
 
-                eventSource.addEventListener("progress", (event) => {
-                    const progress = parseInt(event.data);
-                    console.log("Progress update:", progress);
-                    bar.style.width = `${progress}%`;
-                    bar.textContent = `${progress}%`;
-                    lastProgress = progress;
-        });
+                if (progress < 100) {
+                    setTimeout(pollProgress, 1000); 
+                } else {
+                    loadingContent.style.display = "none";
+                    completionMessage.style.display = "block";
+                }
+            } catch (error) {
+                console.error("Polling error:", error);
+                statusMessage.textContent = "Connection error. Please refresh the page.";
+            }
+        }
 
-                eventSource.addEventListener("complete", (event) => {
-                    console.log("Completion event received");
-                const data = JSON.parse(event.data);
-                console.log("Completion data:", data);
-
-                // Update file list
-                fileList.innerHTML = data.file_names.map(file => `<li>${file}</li>`).join("");
-
-                // Update magnet link
-                magnetLink.href = data.magnet_link;
-
-                // Show completion message
-                loadingContent.style.display = "none";
-                completionMessage.style.display = "block";
-
-                // Close the SSE connection
-            eventSource.close();
-        });
-
-        eventSource.onerror = (error) => {
-            console.error("SSE Error:", error);
-            statusMessage.textContent = "Connection error. Please refresh the page.";
-        };
+        pollProgress();
     </script>
 </body>
 
