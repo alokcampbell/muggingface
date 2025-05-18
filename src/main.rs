@@ -711,20 +711,25 @@ async fn progress_json(
     let (user, repo) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
 
-    fn get_from_map<'a>(map: &'a Mutex<HashMap<String, u64>>, key: &str, default: u64) -> Result<u64, PoisonError<std::sync::MutexGuard<'a, HashMap<String, u64>>>> {
-        let guard = map.lock()?;
-        Ok(guard.get(key).copied().unwrap_or(default))
+    // Modified helper function to get values from Mutex-protected HashMaps
+    // It now directly returns u64 and handles PoisonError internally.
+    fn get_from_map(map: &Mutex<HashMap<String, u64>>, key: &str, default: u64) -> u64 {
+        match map.lock() {
+            Ok(guard) => guard.get(key).copied().unwrap_or(default),
+            Err(poison_error) => {
+                error!(
+                    "Mutex for key '{}' was poisoned. Returning default value {}. Error: {}",
+                    key,
+                    default,
+                    poison_error.to_string()
+                );
+                default // Return default if mutex is poisoned
+            }
+        }
     }
 
-    let downloaded = match get_from_map(&state.download_progress, &full_repo, 0) {
-        Ok(v) => v,
-        Err(_) => 0,
-    };
-
-    let total = match get_from_map(&state.total_sizes, &full_repo, 1) {
-        Ok(v) => v,
-        Err(_) => 1,
-    };
+    let downloaded = get_from_map(&state.download_progress, &full_repo, 0);
+    let total = get_from_map(&state.total_sizes, &full_repo, 1);
 
     info!(
         target: "progress",
