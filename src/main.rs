@@ -47,7 +47,6 @@ use tracing::{info, error};
 use sha1::{Sha1, Digest};
 use hex;
 use urlencoding;
-use serde_json;
 
 const DATA_DIR: &str = "data";
 const TORRENTS_DIR: &str = "/home/jerboa/seeding";
@@ -708,35 +707,24 @@ async fn repo_info(
 async fn progress_json(
     path: web::Path<(String, String)>,
     state: web::Data<Arc<AppState>>,
-) -> HttpResponse {
+    ) -> Result<Json<Progress>, ActixError> {
     let (user, repo) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
 
-    // Initialize progress if not exists
-    {
-        let mut progress = state.download_progress.lock().unwrap();
-        if !progress.contains_key(&full_repo) {
-            progress.insert(full_repo.clone(), 0);
-        }
-    }
-    
-    // Initialize total size if not exists
-    {
-        let mut sizes = state.total_sizes.lock().unwrap();
-        if !sizes.contains_key(&full_repo) {
-            sizes.insert(full_repo.clone(), 1); // Default to 1 to avoid division by zero
-        }
+    fn get_from_map<'a>(map: &'a Mutex<HashMap<String, u64>>, key: &str, default: u64) -> Result<u64, PoisonError<std::sync::MutexGuard<'a, HashMap<String, u64>>>> {
+        let guard = map.lock()?;
+        Ok(guard.get(key).copied().unwrap_or(default))
     }
 
-    let downloaded = state.download_progress.lock().unwrap()
-        .get(&full_repo)
-        .copied()
-        .unwrap_or(0);
-    
-    let total = state.total_sizes.lock().unwrap()
-        .get(&full_repo)
-        .copied()
-        .unwrap_or(1);
+    let downloaded = match get_from_map(&state.download_progress, &full_repo, 0) {
+        Ok(v) => v,
+        Err(_) => 0,
+    };
+
+    let total = match get_from_map(&state.total_sizes, &full_repo, 1) {
+        Ok(v) => v,
+        Err(_) => 1,
+    };
 
     info!(
         target: "progress",
@@ -746,23 +734,17 @@ async fn progress_json(
         total
     );
 
-    let progress_data = Progress { downloaded, total };
+    info!(
+    "Progress for {}: {}/{} bytes", 
+    full_repo, 
+    downloaded, 
+    total
+    );
     
-    match serde_json::to_string(&progress_data) {
-        Ok(json_body) => {
-            info!("Successfully serialized progress. Sending JSON body: {}", json_body);
-            HttpResponse::Ok()
-                .content_type("application/json")
-                .body(json_body)
-        }
-        Err(e) => {
-            let error_json_body = "{\"error\":\"Failed to serialize progress data on server\"}";
-            error!("Failed to serialize Progress struct to JSON for {}: {}. Sending error JSON: {}", full_repo, e, error_json_body);
-            HttpResponse::InternalServerError()
-                .content_type("application/json")
-                .body(error_json_body)
-        }
-    }
+    Ok(web::Json(Progress {
+        downloaded,
+        total,
+    }))
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
