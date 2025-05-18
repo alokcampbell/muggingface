@@ -457,8 +457,9 @@ async fn repo_info(
                                 };
                                 let info_hash = Sha1::digest(&info_bytes);
                                 let display_name = format!("{}-{}", full_repo.replace("/", "-"), info.sha);
-                                let magnet_link_str = format!("magnet:?xt=urn:btih:{}&dn={}", 
-                                    hex::encode(info_hash), 
+                                let magnet_link_str = format!(
+                                    "magnet:?xt=urn:btih:{}&dn={}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce",
+                                    hex::encode(info_hash),
                                     urlencoding::encode(&display_name)
                                 );
 
@@ -516,7 +517,8 @@ async fn repo_info(
                             };
                             let info_hash = Sha1::digest(&info_bytes);
                             let display_name = format!("{}-{}", full_repo.replace("/", "-"), info.sha);
-                            let magnet_link_str = format!("magnet:?xt=urn:btih:{}&dn={}",
+                            let magnet_link_str = format!(
+                                "magnet:?xt=urn:btih:{}&dn={}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce",
                                 hex::encode(info_hash),
                                 urlencoding::encode(&display_name)
                             );
@@ -682,9 +684,9 @@ async fn repo_info(
                 };
                 let info_hash = Sha1::digest(&info_bytes);
                 let display_name = format!("{}-{}", full_repo_clone.replace("/", "-"), info_clone.sha);
-
-                let magnet_link_str = format!("magnet:?xt=urn:btih:{}&dn={}", 
-                    hex::encode(info_hash), 
+                let magnet_link_str = format!(
+                    "magnet:?xt=urn:btih:{}&dn={}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce",
+                    hex::encode(info_hash),
                     urlencoding::encode(&display_name)
                 );
 
