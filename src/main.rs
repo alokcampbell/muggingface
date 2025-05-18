@@ -49,8 +49,8 @@ use hex;
 use urlencoding;
 
 const DATA_DIR: &str = "data";
-const TORRENTS_DIR: &str = "~/watch";
-const SEEDING_DIR: &str = "~/seeding";
+const TORRENTS_DIR: &str = "/home/jerboa/watch";
+const SEEDING_DIR: &str = "/home/jerboa/seeding";
 const BUCKET_NAME: &str = "gerbiltestman";
 
 fn get_base_dir() -> Result<PathBuf, Box<dyn Error>> {
