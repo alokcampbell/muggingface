@@ -38,15 +38,19 @@ use zip::{ZipWriter, write::FileOptions};
 // use anyhow::Result;
 use bendy::{decoding::FromBencode, encoding::ToBencode, value::Value};
 use hf_hub::api::sync::Api;
+use hf_hub::{Repo, RepoType};
 use librqbit;
 use reqwest;
 use shuttle_runtime::{SecretStore, Secrets};
 use tera::{Context, Tera};
 use tracing::{info, error};
+use sha1::{Sha1, Digest};
+use hex;
+use urlencoding;
 
 const DATA_DIR: &str = "data";
-const TORRENTS_DIR: &str = "torrents";
-const ZIPS_DIR: &str = "zips";
+const TORRENTS_DIR: &str = "/home/jerboa/seeding";
+const SEEDING_DIR: &str = "/home/jerboa/seeding";
 const BUCKET_NAME: &str = "gerbiltestman";
 
 fn get_base_dir() -> Result<PathBuf, Box<dyn Error>> {
@@ -57,10 +61,9 @@ fn get_base_dir() -> Result<PathBuf, Box<dyn Error>> {
 
 fn initialize_server_directories() -> Result<(), Box<dyn Error>> {
     let base_dir = get_base_dir()?;
-    let torrents_dir = base_dir.join(TORRENTS_DIR);
-    let zips_dir = base_dir.join(ZIPS_DIR);
+    let torrents_dir = PathBuf::from(TORRENTS_DIR);
     
-    for dir in &[&base_dir, &torrents_dir, &zips_dir] {
+    for dir in &[&base_dir, &torrents_dir] {
         if !dir.exists() {
             info!("Creating directory: {}", dir.display());
             std::fs::create_dir_all(dir)
@@ -224,6 +227,102 @@ async fn r2_upload(
     Ok(file_url)
 }
 
+async fn r2_upload_folder(
+    folder_to_upload: &Path,
+    r2_base_key_prefix: &str,
+    state: &Arc<AppState>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    info!(
+        "Starting upload of folder {} to R2 with base key prefix: {}",
+        folder_to_upload.display(),
+        r2_base_key_prefix
+    );
+
+    let access_key = &state.api_key;
+    let secret_key = &state.api_key2;
+    let account_id = &state.api_key3;
+    let endpoint_str = format!("https://{}.r2.cloudflarestorage.com", account_id);
+
+    let region_provider = RegionProviderChain::first_try(Region::new("auto"))
+        .or_default_provider()
+        .or_else(Region::new("us-east-1"));
+    let shared_config = aws_config::from_env()
+        .region(region_provider)
+        .credentials_provider(Credentials::new(
+            access_key.clone(),
+            secret_key.clone(),
+            None,
+            None,
+            "custom",
+        ))
+        .load()
+        .await;
+
+    let s3_config = S3ConfigBuilder::from(&shared_config)
+        .endpoint_url(endpoint_str.clone())
+        .force_path_style(true)
+        .build();
+    let client = Client::from_conf(s3_config);
+
+    for entry in WalkDir::new(folder_to_upload).into_iter().filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_file() {
+            let relative_path = match path.strip_prefix(folder_to_upload) {
+                Ok(rp) => rp,
+                Err(e) => {
+                    error!(
+                        "Failed to get relative path for {} from base {}: {}",
+                        path.display(),
+                        folder_to_upload.display(),
+                        e
+                    );
+                    continue;
+                }
+            };
+
+            let object_key = format!(
+                "{}",
+                Path::new(r2_base_key_prefix)
+                    .join(relative_path)
+                    .to_string_lossy()
+            );
+
+            info!("Uploading file {} to R2 key: {}", path.display(), object_key);
+
+            match fs::read(path).await {
+                Ok(data) => {
+                    match client
+                        .put_object()
+                        .bucket(BUCKET_NAME)
+                        .key(&object_key) // Pass as &str
+                        .body(ByteStream::from(data))
+                        .acl(ObjectCannedAcl::Private)
+                        .send()
+                        .await
+                    {
+                        Ok(_) => info!(
+                            "Successfully uploaded {} to R2 key: {}",
+                            path.display(),
+                            object_key
+                        ),
+                        Err(e) => error!(
+                            "Failed to upload {} to R2 key {}: {}",
+                            path.display(),
+                            object_key,
+                            e
+                        ),
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to read file {} for R2 upload: {}", path.display(), e);
+                }
+            }
+        }
+    }
+    info!("Finished uploading folder {}.", folder_to_upload.display());
+    Ok(())
+}
+
 #[get("/{user}/{repo}{tail:.*}")]
 async fn repo_info(
     path: web::Path<(String, String, String)>,
@@ -232,10 +331,9 @@ async fn repo_info(
     let (user, repo, _tail) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
     info!("Requesting repo info for {}", full_repo);
-    let repo = state.hf_api.model(full_repo.clone());
-    match repo.info() {
+    let hf_repo_info = state.hf_api.model(full_repo.clone());
+    match hf_repo_info.info() {
         Ok(info) => {
-            // Get base directory from user's home
             let base_dir = match get_base_dir() {
                 Ok(dir) => dir,
                 Err(e) => {
@@ -245,11 +343,11 @@ async fn repo_info(
                 }
             };
             
-            let torrents_dir = base_dir.join(TORRENTS_DIR);
-            let zips_dir = base_dir.join(ZIPS_DIR);
+            let torrents_dir = PathBuf::from(TORRENTS_DIR);
+            let seeding_dir = PathBuf::from(SEEDING_DIR);
             
-            // Create directories if they don't exist
-            for dir in &[&base_dir, &torrents_dir, &zips_dir] {
+            // create directories if they don't exist
+            for dir in &[&base_dir, &torrents_dir, &seeding_dir] {
                 if let Err(e) = ensure_directory_exists(dir) {
                     error!("Failed to create directory {}: {}", dir.display(), e);
                     return HttpResponse::InternalServerError()
@@ -259,28 +357,21 @@ async fn repo_info(
 
             // getting the total size of the repo
             let mut total_size = 0u64;
-            let zip_name = format!("{}-{}.zip", full_repo.replace("/", "-"), info.sha);
-            for file in &info.siblings {
+            for file_info in &info.siblings {
                 let url = format!(
                     "https://huggingface.co/{}/resolve/main/{}?download=true",
-                    full_repo, file.rfilename
+                    full_repo, file_info.rfilename
                 );
-                // building client for getting the size of the file
                 let client = reqwest::Client::builder()
                     .user_agent("muggingface/1.0")
                     .redirect(reqwest::redirect::Policy::limited(20))
                     .build()
                     .unwrap();
-                // sending request + header
                 let res = client.get(&url).header("Range", "bytes=0-0").send().await;
-                // checking if the request was successful
                 if let Ok(resp) = res {
-                    // going into header
                     if let Some(content_range) = resp.headers().get("Content-Range") {
-                        // converting to string
                         if let Ok(s) = content_range.to_str() {
                             if let Some(size_str) = s.split('/').nth(1) {
-                                // parsing the size
                                 if let Ok(size) = size_str.parse::<u64>() {
                                     total_size += size;
                                     continue;
@@ -288,21 +379,17 @@ async fn repo_info(
                             }
                         }
                     }
-                    // fallback size if needed
                     if let Some(cl) = resp.content_length() {
                         total_size += cl;
                     }
                 } else {
-                    info!("Failed to fetch size for: {}", file.rfilename);
+                    info!("Failed to fetch size for: {}", file_info.rfilename);
                 }
             }
-            // start download progress, saving it in memory
             {
                 let mut progress = state.download_progress.lock().unwrap();
-                progress.insert(full_repo.clone(), 0); // start at 0 bytes
+                progress.insert(full_repo.clone(), 0);
             }
-
-            // saving the total size
             {
                 let mut sizes = state.total_sizes.lock().unwrap();
                 sizes.insert(full_repo.clone(), total_size);
@@ -310,33 +397,148 @@ async fn repo_info(
             
             let file_names: Vec<String> = info.siblings.iter().map(|f| f.rfilename.clone()).collect();
             
-            // Use server-appropriate paths
-            let target_dir = base_dir.join(format!("{}-{}", full_repo.replace("/", "-"), info.sha));
+            let target_dir = seeding_dir.join(format!("{}-{}", full_repo.replace("/", "-"), info.sha));
             
-            // Ensure target directory exists
             if let Err(e) = ensure_directory_exists(&target_dir) {
                 error!("Failed to create target directory {}: {}", target_dir.display(), e);
                 return HttpResponse::InternalServerError()
                     .body(format!("Failed to create target directory: {}", e));
             }
 
-            match r2_object_exists(&zip_name, &state).await {
-                Ok(true) => {
-                    info!("File already exists in R2, skipping upload");
-                    let magnet: String = format!("https://gerbil.muggingface.co/{}.torrent", info.sha);
+            let all_files_exist = info.siblings.iter().all(|file_info| {
+                let file_path = target_dir.join(&file_info.rfilename);
+                file_path.exists()
+            });
 
-                    return HttpResponse::Ok().content_type("text/html").body(
-                        render_finished_html_response(&full_repo, &info.sha, &file_names, &magnet, &state.tera),
-                    );
-                }
-                Ok(false) => {
-                    info!("File not found in R2, continuing with download...");
-                }
-                Err(e) => {
-                    error!("Error checking R2: {}", e);
-                    return HttpResponse::InternalServerError().body("Error checking R2 storage");
+            if all_files_exist {
+                info!("All files already exist in {}, generating magnet link", target_dir.display());
+                let torrent_path = torrents_dir.join(format!("{}.torrent", info.sha));
+                
+                let torrent_name = target_dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                let options = librqbit::CreateTorrentOptions {
+                    name: Some(&torrent_name),
+                    piece_length: Some(1_048_576),
+                };
+
+                match librqbit::create_torrent(&target_dir, options).await {
+                    Ok(torrent_file) => {
+                        if let Ok(torrent_bytes) = torrent_file.as_bytes() {
+                            if let Err(e) = std::fs::write(&torrent_path, &torrent_bytes) {
+                                error!("Failed to write torrent file {}: {}", torrent_path.display(), e);
+                            } else {
+                                let bencode_value = match Value::from_bencode(&torrent_bytes) {
+                                    Ok(val) => val,
+                                    Err(e) => {
+                                        error!("Failed to parse bencode from torrent bytes: {}", e);
+                                        return HttpResponse::InternalServerError().body("Failed to generate magnet link");
+                                    }
+                                };
+                                let info_dict = match bencode_value {
+                                    Value::Dict(d) => match d.get(&b"info"[..]) {
+                                        Some(val) => val.clone(),
+                                        None => {
+                                            error!("No 'info' dict found in torrent bencode");
+                                            return HttpResponse::InternalServerError().body("Failed to generate magnet link");
+                                        }
+                                    },
+                                    _ => {
+                                        error!("Invalid torrent format: not a dictionary at root");
+                                        return HttpResponse::InternalServerError().body("Failed to generate magnet link");
+                                    }
+                                };
+                                let info_bytes = match info_dict.to_bencode() {
+                                    Ok(bytes) => bytes,
+                                    Err(e) => {
+                                        error!("Failed to re-encode info_dict: {}", e);
+                                        return HttpResponse::InternalServerError().body("Failed to generate magnet link");
+                                    }
+                                };
+                                let info_hash = Sha1::digest(&info_bytes);
+                                let display_name = format!("{}-{}", full_repo.replace("/", "-"), info.sha);
+                                let magnet_link_str = format!(
+                                    "magnet:?xt=urn:btih:{}&dn={}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce",
+                                    hex::encode(info_hash),
+                                    urlencoding::encode(&display_name)
+                                );
+
+                                {
+                                    let mut magnet_links_guard = state.magnet_links.lock().unwrap();
+                                    magnet_links_guard.insert(full_repo.clone(), magnet_link_str.clone());
+                                }
+
+                                return HttpResponse::Ok().content_type("text/html").body(
+                                    render_finished_html_response(&full_repo, &info.sha, &file_names, &magnet_link_str, &state.tera),
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to create torrent for {}: {}", target_dir.display(), e);
+                    }
                 }
             }
+
+            let torrent_path = torrents_dir.join(format!("{}.torrent", info.sha));
+            
+            // check if torrent file exists locally
+            if torrent_path.exists() {
+                info!("Torrent file {} already exists locally. Generating magnet link from local .torrent file.", torrent_path.display());
+                match std::fs::read(&torrent_path) {
+                    Ok(torrent_bytes) => {
+                        let bencode_value = match Value::from_bencode(&torrent_bytes) {
+                            Ok(val) => val,
+                            Err(e) => {
+                                error!("Failed to parse bencode from local torrent file {}: {}", torrent_path.display(), e);
+                                return HttpResponse::InternalServerError().body("Failed to generate magnet link from existing torrent (parse error)");
+                            }
+                        };
+                        let info_dict = match bencode_value {
+                            Value::Dict(d) => match d.get(&b"info"[..]) {
+                                Some(val) => val.clone(),
+                                None => {
+                                    error!("No 'info' dict found in local torrent bencode for {}: {}", torrent_path.display(), info.sha);
+                                    return HttpResponse::InternalServerError().body("Failed to generate magnet link from existing torrent (no info dict)");
+                                }
+                            },
+                            _ => {
+                                error!("Invalid local torrent format (not a dict at root) for {}: {}", torrent_path.display(), info.sha);
+                                return HttpResponse::InternalServerError().body("Failed to generate magnet link from existing torrent (format error)");
+                            }
+                        };
+                        let info_bytes = match info_dict.to_bencode() {
+                            Ok(bytes) => bytes,
+                            Err(e) => {
+                                error!("Failed to re-encode info_dict for {}: {}", torrent_path.display(), e);
+                                return HttpResponse::InternalServerError().body("Failed to generate magnet link from existing torrent (re-encode error)");
+                            }
+                        };
+                        let info_hash = Sha1::digest(&info_bytes);
+                        let display_name = format!("{}-{}", full_repo.replace("/", "-"), info.sha);
+                        let magnet_link_str = format!(
+                            "magnet:?xt=urn:btih:{}&dn={}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce",
+                            hex::encode(info_hash),
+                            urlencoding::encode(&display_name)
+                        );
+
+                        // store it in the shared state
+                        {
+                            let mut magnet_links_guard = state.magnet_links.lock().unwrap();
+                            magnet_links_guard.insert(full_repo.clone(), magnet_link_str.clone());
+                            info!("Magnet link for {} (from local torrent) stored.", full_repo);
+                        }
+
+                        return HttpResponse::Ok().content_type("text/html").body(
+                            render_finished_html_response(&full_repo, &info.sha, &file_names, &magnet_link_str, &state.tera),
+                        );
+                    }
+                    Err(e) => {
+                        error!("Failed to read local torrent file {}: {}", torrent_path.display(), e);
+                        return HttpResponse::InternalServerError().body(format!("Failed to read local torrent file: {}", e));
+                    }
+                }
+            }
+
+            info!("No existing torrent file found, continuing with download and processing...");
 
             let full_repo_for_response = full_repo.clone();
             let sha_for_response = info.sha.clone();
@@ -344,12 +546,14 @@ async fn repo_info(
             let info_clone = info.clone();
             let full_repo_clone = full_repo.clone();
             let state_clone = state.clone();
+            let torrents_dir_clone = torrents_dir.clone();
             
             tokio::spawn(async move {
-                for file in &info_clone.siblings {
-                    // checking / setting directories
-                    let file_path = target_dir_clone.join(&file.rfilename);
+                let api = Api::new().unwrap();
+                let model = api.model(full_repo_clone.clone());
 
+                for file_info in &info_clone.siblings {
+                    let file_path = target_dir_clone.join(&file_info.rfilename);
                     if let Some(parent) = file_path.parent() {
                         if let Err(e) = ensure_directory_exists(parent) {
                             error!("Failed to create parent directory {}: {}", parent.display(), e);
@@ -357,155 +561,126 @@ async fn repo_info(
                         }
                     }
 
-                    // actual download time (get the website, download the file, create the file, write the file.)
-                    let url = format!(
-                        "https://huggingface.co/{}/resolve/main/{}?download=true",
-                        full_repo_clone, file.rfilename
-                    );
-                    let response = reqwest::get(&url).await.expect("Failed to access file");
-
-                    let bytes = response.bytes().await.expect("Failed to download file");
-                    let mut file = File::create(&file_path)
-                        .await
-                        .expect("Failed to create file");
-                    file.write_all(&bytes).await.expect("Failed to write file");
-
-                    {
-                        let mut progress = match state_clone.download_progress.lock() {
-                            Ok(guard) => guard,
-                            Err(_) => {
-                                error!("Mutex was poisoned, skipping progress update");
-                                return;
+                    match model.get(&file_info.rfilename) {
+                        Ok(cache_path) => {
+                            if let Err(e) = std::fs::copy(&cache_path, &file_path) {
+                                error!("Failed to copy file from cache to target: {}", e);
+                                continue;
                             }
-                        };
-                        if let Some(downloaded) = progress.get_mut(&full_repo_clone) {
-                            *downloaded += bytes.len() as u64;
-                            info!("Updated progress for {}: {} bytes", full_repo_clone, *downloaded);
+                            
+                            let file_len = match fs::metadata(&file_path).await {
+                                Ok(metadata) => metadata.len(),
+                                Err(e) => {
+                                    error!("Failed to get metadata for file {}: {}", file_path.display(), e);
+                                    0
+                                }
+                            };
+
+                            {
+                                let mut progress = match state_clone.download_progress.lock() {
+                                    Ok(guard) => guard,
+                                    Err(_) => {
+                                        error!("Mutex was poisoned for download_progress, skipping progress update");
+                                        return;
+                                    }
+                                };
+                                if let Some(downloaded) = progress.get_mut(&full_repo_clone) {
+                                    *downloaded += file_len;
+                                    info!("Updated progress for {}: {} bytes", full_repo_clone, *downloaded);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to download file {}: {}", file_info.rfilename, e);
+                            continue;
                         }
                     }
                 }
 
-                // Use the server-appropriate paths for torrents and zips
-                let torrent_path = torrents_dir.join(format!("{}.torrent", info_clone.sha));
-                let zip_path = zips_dir.join(&zip_name);
-
-                if let Some(torrent_parent) = torrent_path.parent() {
-                    if let Err(e) = ensure_directory_exists(torrent_parent) {
-                        error!("Failed to create torrent directory {}: {}", torrent_parent.display(), e);
-                        return;
-                    }
-                }
-
-                let zip_file = StdFile::create(&zip_path).expect("Failed to create zip file");
-                let mut zip = ZipWriter::new(zip_file);
-                let options: FileOptions<()> = FileOptions::default().compression_method(zip::CompressionMethod::Stored);
-                
-                for entry in WalkDir::new(&target_dir_clone)
-                    .into_iter()
-                    .filter_map(|e| e.ok())
-                    .filter(|e| e.path() != zip_path)
-                {
-                    let path = entry.path();
-                    if path.is_file() {
-                        let name_in_zip = path
-                            .strip_prefix(&target_dir_clone)
-                            .unwrap()
-                            .to_string_lossy();
-                        zip.start_file(name_in_zip, options).expect("Failed to start file in zip");
-                        let mut f = StdFile::open(path).expect("Failed to open file for zipping");
-                        std::io::copy(&mut f, &mut zip).expect("Failed to write file into zip");
-                    }
-                }
-                
-                zip.finish().expect("Failed to finish zip file");
-                
-                info!("Attempting to upload zip file: {}", zip_path.to_string_lossy());
-                let zip_url = r2_upload(
-                    &zip_path.to_string_lossy(),
-                    &state_clone
-                ).await;
-
-                match &zip_url {
-                    Ok(url) => info!("Successfully uploaded zip to: {}", url),
-                    Err(e) => info!(
-                        "Failed to upload zip to R2: {} for file {}",
-                        e,
-                        zip_path.to_string_lossy()
-                    ),
-                }
-
-                // creating the torrent
-                let bruh2 = zip_name.clone();
+                let torrent_path = torrents_dir_clone.join(format!("{}.torrent", info_clone.sha));
+                let torrent_name = target_dir_clone.file_name().unwrap_or_default().to_string_lossy().into_owned();
 
                 let options = librqbit::CreateTorrentOptions {
-                    name: Some(&bruh2),
+                    name: Some(&torrent_name),
                     piece_length: Some(1_048_576),
                 };
 
-                let zip_metadata = std::fs::metadata(&zip_path).expect("Failed to get zip metadata");
-                info!("Zip file size: {} bytes", zip_metadata.len());
+                info!("Creating torrent from folder: {}", target_dir_clone.display());
+                let torrent_file = match librqbit::create_torrent(&target_dir_clone, options).await {
+                    Ok(tf) => tf,
+                    Err(e) => {
+                        error!("Failed to create torrent for {}: {}", target_dir_clone.display(), e);
+                        return;
+                    }
+                };
 
-                info!("Creating torrent from zip file: {}", zip_path.to_string_lossy());
-                let torrent_file = librqbit::create_torrent(&zip_path, options)
-                    .await
-                    .expect("Failed to create torrent");
+                let torrent_bytes = match torrent_file.as_bytes() {
+                    Ok(tb) => tb,
+                    Err(e) => {
+                        error!("Failed to get torrent bytes for {}: {}", target_dir_clone.display(), e);
+                        return;
+                    }
+                };
+                let torrent_bytes_clone = torrent_bytes.clone();
 
-                let torrent_bytes = torrent_file
-                    .as_bytes()
-                    .expect("Failed to get torrent bytes");
-                let bytes_clone = torrent_bytes.clone();
-
-                std::fs::write(&torrent_path, torrent_bytes).expect("Failed to write torrent file");
-
-                info!("Attempting to upload torrent file: {}", torrent_path.to_string_lossy());
-                match r2_upload(
-                    &torrent_path.to_string_lossy(),   // or zip_path.to_str().unwrap()
-                    &state_clone
-                ).await {
-                    Ok(url) => info!("Successfully uploaded zip to: {}", url),
-                    Err(e) => info!(
-                        "Failed to upload zip to R2: {} for file {}",
-                        e,
-                        torrent_path.to_string_lossy()
-                    ),
+                if let Err(e) = std::fs::write(&torrent_path, &torrent_bytes_clone) {
+                    error!("Failed to write torrent file {}: {}", torrent_path.display(), e);
+                    return;
                 }
+                info!("Torrent file created at: {}", torrent_path.display());
 
-                let bencode_value = Value::from_bencode(&bytes_clone).expect("Failed to parse bencode");
+                let r2_folder_key_prefix = format!("{}-{}", full_repo_clone.replace("/", "-"), info_clone.sha);
+                info!("Uploading folder contents {} to R2 under prefix {}...", target_dir_clone.display(), r2_folder_key_prefix);
+               // if let Err(e) = r2_upload_folder(&target_dir_clone, &r2_folder_key_prefix, &state_clone).await {
+               //     error!("Failed to upload folder {} to R2: {}", target_dir_clone.display(), e);
+               // }
 
-                let file_name = zip_path
-                    .file_name()
-                    .and_then(|f| f.to_str())
-                    .expect("Failed to get file name");
+                info!("Uploading torrent file {} to R2...", torrent_path.display());
+            //    match r2_upload(&torrent_path.to_string_lossy(), &state_clone).await {
+            //        Ok(url) => info!("Successfully uploaded torrent file to: {}", url),
+            //        Err(e) => error!("Failed to upload torrent file {} to R2: {}", torrent_path.display(), e),
+            //    }
 
-                let web_seed_url = format!("https://gerbil.muggingface.co/{}", file_name);
-
-                let mut dict = match bencode_value {
-                    Value::Dict(d) => d,
-                    _ => panic!("Invalid torrent format"),
+                let bencode_value = match Value::from_bencode(&torrent_bytes_clone) {
+                    Ok(val) => val,
+                    Err(e) => {
+                        error!("Failed to parse bencode from torrent bytes: {}", e);
+                        return;
+                    }
                 };
-                
-                dict.insert(
-                    Cow::Borrowed(b"url-list"),
-                    Value::Bytes(Cow::Owned(web_seed_url.as_bytes().to_vec())),
+                let info_dict = match bencode_value {
+                    Value::Dict(d) => match d.get(&b"info"[..]) {
+                        Some(val) => val.clone(),
+                        None => {
+                            error!("No 'info' dict found in torrent bencode");
+                            return;
+                        }
+                    },
+                    _ => {
+                        error!("Invalid torrent format: not a dictionary at root");
+                        return;
+                    }
+                };
+                let info_bytes = match info_dict.to_bencode() {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        error!("Failed to re-encode info_dict: {}", e);
+                        return;
+                    }
+                };
+                let info_hash = Sha1::digest(&info_bytes);
+                let display_name = format!("{}-{}", full_repo_clone.replace("/", "-"), info_clone.sha);
+                let magnet_link_str = format!(
+                    "magnet:?xt=urn:btih:{}&dn={}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce",
+                    hex::encode(info_hash),
+                    urlencoding::encode(&display_name)
                 );
-                
-                let modified_bencode = Value::Dict(dict).to_bencode().expect("Failed to re-bencode");
-                let modified_bencode_clone = modified_bencode.clone();
-                std::fs::write(&torrent_path, &modified_bencode_clone).expect("Failed to write modified torrent");
-                
-                let bencode_value = Value::from_bencode(&modified_bencode)
-                    .expect("Failed to re-parse modified bencode");
-                let info_val = match bencode_value {
-                    Value::Dict(d) => d.get(b"info" as &[u8]).cloned().expect("No info dict found"),
-                    _ => panic!("Invalid torrent format"),
-                };
-                
-                let mut info_buf = Vec::new();
-                Write::write_all(
-                    &mut info_buf,
-                    &info_val.to_bencode().expect("Failed to encode info dict"),
-                )
-                .expect("Failed to write to buffer");
+
+                {
+                    let mut magnet_links_guard = state_clone.magnet_links.lock().unwrap();
+                    magnet_links_guard.insert(full_repo_clone.clone(), magnet_link_str);
+                    info!("Magnet link for {} stored.", full_repo_clone);
+                }
             });
             return HttpResponse::Ok().content_type("text/html").body(
                 render_loading_html_response(&full_repo_for_response, &sha_for_response, &state.tera),
