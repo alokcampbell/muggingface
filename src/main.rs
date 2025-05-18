@@ -346,7 +346,7 @@ async fn repo_info(
             let torrents_dir = PathBuf::from(TORRENTS_DIR);
             let seeding_dir = PathBuf::from(SEEDING_DIR);
             
-            // Create directories if they don't exist
+            // create directories if they don't exist
             for dir in &[&base_dir, &torrents_dir, &seeding_dir] {
                 if let Err(e) = ensure_directory_exists(dir) {
                     error!("Failed to create directory {}: {}", dir.display(), e);
@@ -405,7 +405,6 @@ async fn repo_info(
                     .body(format!("Failed to create target directory: {}", e));
             }
 
-            // Check if all files already exist
             let all_files_exist = info.siblings.iter().all(|file_info| {
                 let file_path = target_dir.join(&file_info.rfilename);
                 file_path.exists()
@@ -415,7 +414,6 @@ async fn repo_info(
                 info!("All files already exist in {}, generating magnet link", target_dir.display());
                 let torrent_path = torrents_dir.join(format!("{}.torrent", info.sha));
                 
-                // Generate torrent and magnet link
                 let torrent_name = target_dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
                 let options = librqbit::CreateTorrentOptions {
                     name: Some(&torrent_name),
@@ -480,74 +478,67 @@ async fn repo_info(
                 }
             }
 
-            let torrent_r2_key = format!("{}.torrent", info.sha);
-            match r2_object_exists(&torrent_r2_key, &state).await {
-                Ok(true) => {
-                    info!("Torrent file {} already exists in R2. Generating magnet link from local .torrent file.", torrent_r2_key);
-                    let local_torrent_path = torrents_dir.join(format!("{}.torrent", info.sha));
-
-                    match std::fs::read(&local_torrent_path) {
-                        Ok(torrent_bytes) => {
-                            let bencode_value = match Value::from_bencode(&torrent_bytes) {
-                                Ok(val) => val,
-                                Err(e) => {
-                                    error!("Failed to parse bencode from local torrent file {}: {}", local_torrent_path.display(), e);
-                                    return HttpResponse::InternalServerError().body("Failed to generate magnet link from existing torrent (parse error)");
-                                }
-                            };
-                            let info_dict = match bencode_value {
-                                Value::Dict(d) => match d.get(&b"info"[..]) {
-                                    Some(val) => val.clone(),
-                                    None => {
-                                        error!("No 'info' dict found in local torrent bencode for {}: {}", local_torrent_path.display(), info.sha);
-                                        return HttpResponse::InternalServerError().body("Failed to generate magnet link from existing torrent (no info dict)");
-                                    }
-                                },
-                                _ => {
-                                    error!("Invalid local torrent format (not a dict at root) for {}: {}", local_torrent_path.display(), info.sha);
-                                    return HttpResponse::InternalServerError().body("Failed to generate magnet link from existing torrent (format error)");
-                                }
-                            };
-                            let info_bytes = match info_dict.to_bencode() {
-                                Ok(bytes) => bytes,
-                                Err(e) => {
-                                    error!("Failed to re-encode info_dict for {}: {}", local_torrent_path.display(), e);
-                                    return HttpResponse::InternalServerError().body("Failed to generate magnet link from existing torrent (re-encode error)");
-                                }
-                            };
-                            let info_hash = Sha1::digest(&info_bytes);
-                            let display_name = format!("{}-{}", full_repo.replace("/", "-"), info.sha);
-                            let magnet_link_str = format!(
-                                "magnet:?xt=urn:btih:{}&dn={}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce",
-                                hex::encode(info_hash),
-                                urlencoding::encode(&display_name)
-                            );
-
-                            // Store it in the shared state
-                            {
-                                let mut magnet_links_guard = state.magnet_links.lock().unwrap();
-                                magnet_links_guard.insert(full_repo.clone(), magnet_link_str.clone());
-                                info!("Magnet link for {} (from R2 existing torrent) stored.", full_repo);
+            let torrent_path = torrents_dir.join(format!("{}.torrent", info.sha));
+            
+            // check if torrent file exists locally
+            if torrent_path.exists() {
+                info!("Torrent file {} already exists locally. Generating magnet link from local .torrent file.", torrent_path.display());
+                match std::fs::read(&torrent_path) {
+                    Ok(torrent_bytes) => {
+                        let bencode_value = match Value::from_bencode(&torrent_bytes) {
+                            Ok(val) => val,
+                            Err(e) => {
+                                error!("Failed to parse bencode from local torrent file {}: {}", torrent_path.display(), e);
+                                return HttpResponse::InternalServerError().body("Failed to generate magnet link from existing torrent (parse error)");
                             }
+                        };
+                        let info_dict = match bencode_value {
+                            Value::Dict(d) => match d.get(&b"info"[..]) {
+                                Some(val) => val.clone(),
+                                None => {
+                                    error!("No 'info' dict found in local torrent bencode for {}: {}", torrent_path.display(), info.sha);
+                                    return HttpResponse::InternalServerError().body("Failed to generate magnet link from existing torrent (no info dict)");
+                                }
+                            },
+                            _ => {
+                                error!("Invalid local torrent format (not a dict at root) for {}: {}", torrent_path.display(), info.sha);
+                                return HttpResponse::InternalServerError().body("Failed to generate magnet link from existing torrent (format error)");
+                            }
+                        };
+                        let info_bytes = match info_dict.to_bencode() {
+                            Ok(bytes) => bytes,
+                            Err(e) => {
+                                error!("Failed to re-encode info_dict for {}: {}", torrent_path.display(), e);
+                                return HttpResponse::InternalServerError().body("Failed to generate magnet link from existing torrent (re-encode error)");
+                            }
+                        };
+                        let info_hash = Sha1::digest(&info_bytes);
+                        let display_name = format!("{}-{}", full_repo.replace("/", "-"), info.sha);
+                        let magnet_link_str = format!(
+                            "magnet:?xt=urn:btih:{}&dn={}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce",
+                            hex::encode(info_hash),
+                            urlencoding::encode(&display_name)
+                        );
 
-                            return HttpResponse::Ok().content_type("text/html").body(
-                                render_finished_html_response(&full_repo, &info.sha, &file_names, &magnet_link_str, &state.tera),
-                            );
+                        // store it in the shared state
+                        {
+                            let mut magnet_links_guard = state.magnet_links.lock().unwrap();
+                            magnet_links_guard.insert(full_repo.clone(), magnet_link_str.clone());
+                            info!("Magnet link for {} (from local torrent) stored.", full_repo);
                         }
-                        Err(e) => {
-                            error!("Failed to read local torrent file {} (expected as {} exists in R2): {}", local_torrent_path.display(), torrent_r2_key, e);
-                            return HttpResponse::InternalServerError().body(format!("Failed to read local torrent file for R2-existing torrent: {}", e));
-                        }
+
+                        return HttpResponse::Ok().content_type("text/html").body(
+                            render_finished_html_response(&full_repo, &info.sha, &file_names, &magnet_link_str, &state.tera),
+                        );
+                    }
+                    Err(e) => {
+                        error!("Failed to read local torrent file {}: {}", torrent_path.display(), e);
+                        return HttpResponse::InternalServerError().body(format!("Failed to read local torrent file: {}", e));
                     }
                 }
-                Ok(false) => {
-                    info!("Torrent file {} not found in R2, continuing with download and processing...", torrent_r2_key);
-                }
-                Err(e) => {
-                    error!("Error checking R2 for torrent {}: {}", torrent_r2_key, e);
-                    return HttpResponse::InternalServerError().body("Error checking R2 storage");
-                }
             }
+
+            info!("No existing torrent file found, continuing with download and processing...");
 
             let full_repo_for_response = full_repo.clone();
             let sha_for_response = info.sha.clone();
@@ -558,11 +549,9 @@ async fn repo_info(
             let torrents_dir_clone = torrents_dir.clone();
             
             tokio::spawn(async move {
-                // Create API instance for this thread
                 let api = Api::new().unwrap();
                 let model = api.model(full_repo_clone.clone());
 
-                // Download all files to the target directory
                 for file_info in &info_clone.siblings {
                     let file_path = target_dir_clone.join(&file_info.rfilename);
                     if let Some(parent) = file_path.parent() {
@@ -572,16 +561,13 @@ async fn repo_info(
                         }
                     }
 
-                    // Download file using hf-hub API
                     match model.get(&file_info.rfilename) {
                         Ok(cache_path) => {
-                            // Copy from cache to target directory
                             if let Err(e) = std::fs::copy(&cache_path, &file_path) {
                                 error!("Failed to copy file from cache to target: {}", e);
                                 continue;
                             }
                             
-                            // Update progress
                             let file_len = match fs::metadata(&file_path).await {
                                 Ok(metadata) => metadata.len(),
                                 Err(e) => {
