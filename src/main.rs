@@ -712,23 +712,31 @@ async fn progress_json(
     let (user, repo) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
 
-    fn get_from_map(map: &Mutex<HashMap<String, u64>>, key: &str, default: u64) -> u64 {
-        match map.lock() {
-            Ok(guard) => guard.get(key).copied().unwrap_or(default),
-            Err(poison_error) => {
-                error!(
-                    "Mutex for key '{}' was poisoned. Returning default value {}. Error: {}",
-                    key,
-                    default,
-                    poison_error.to_string()
-                );
-                default
-            }
+    // Initialize progress if not exists
+    {
+        let mut progress = state.download_progress.lock().unwrap();
+        if !progress.contains_key(&full_repo) {
+            progress.insert(full_repo.clone(), 0);
+        }
+    }
+    
+    // Initialize total size if not exists
+    {
+        let mut sizes = state.total_sizes.lock().unwrap();
+        if !sizes.contains_key(&full_repo) {
+            sizes.insert(full_repo.clone(), 1); // Default to 1 to avoid division by zero
         }
     }
 
-    let downloaded = get_from_map(&state.download_progress, &full_repo, 0);
-    let total = get_from_map(&state.total_sizes, &full_repo, 1);
+    let downloaded = state.download_progress.lock().unwrap()
+        .get(&full_repo)
+        .copied()
+        .unwrap_or(0);
+    
+    let total = state.total_sizes.lock().unwrap()
+        .get(&full_repo)
+        .copied()
+        .unwrap_or(1);
 
     info!(
         target: "progress",
@@ -738,26 +746,21 @@ async fn progress_json(
         total
     );
 
-    info!(
-        "Progress for {}: {}/{} bytes", 
-        full_repo, 
-        downloaded, 
-        total
-    );
-    
     let progress_data = Progress { downloaded, total };
-
+    
     match serde_json::to_string(&progress_data) {
         Ok(json_body) => {
+            info!("Successfully serialized progress. Sending JSON body: {}", json_body);
             HttpResponse::Ok()
                 .content_type("application/json")
                 .body(json_body)
         }
         Err(e) => {
-            error!("Failed to serialize Progress struct to JSON for {}: {}", full_repo, e);
+            let error_json_body = "{\"error\":\"Failed to serialize progress data on server\"}";
+            error!("Failed to serialize Progress struct to JSON for {}: {}. Sending error JSON: {}", full_repo, e, error_json_body);
             HttpResponse::InternalServerError()
                 .content_type("application/json")
-                .body("{\"error\":\"Failed to serialize progress data on server\"}")
+                .body(error_json_body)
         }
     }
 }
