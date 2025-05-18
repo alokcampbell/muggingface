@@ -49,7 +49,7 @@ use hex;
 use urlencoding;
 
 const DATA_DIR: &str = "data";
-const TORRENTS_DIR: &str = "/home/jerboa/watch";
+const TORRENTS_DIR: &str = "/home/jerboa/seeding";
 const SEEDING_DIR: &str = "/home/jerboa/seeding";
 const BUCKET_NAME: &str = "gerbiltestman";
 
