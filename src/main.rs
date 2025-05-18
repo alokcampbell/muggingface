@@ -405,6 +405,80 @@ async fn repo_info(
                     .body(format!("Failed to create target directory: {}", e));
             }
 
+            // Check if all files already exist
+            let all_files_exist = info.siblings.iter().all(|file_info| {
+                let file_path = target_dir.join(&file_info.rfilename);
+                file_path.exists()
+            });
+
+            if all_files_exist {
+                info!("All files already exist in {}, generating magnet link", target_dir.display());
+                let torrent_path = torrents_dir.join(format!("{}.torrent", info.sha));
+                
+                // Generate torrent and magnet link
+                let torrent_name = target_dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                let options = librqbit::CreateTorrentOptions {
+                    name: Some(&torrent_name),
+                    piece_length: Some(1_048_576),
+                };
+
+                match librqbit::create_torrent(&target_dir, options).await {
+                    Ok(torrent_file) => {
+                        if let Ok(torrent_bytes) = torrent_file.as_bytes() {
+                            if let Err(e) = std::fs::write(&torrent_path, &torrent_bytes) {
+                                error!("Failed to write torrent file {}: {}", torrent_path.display(), e);
+                            } else {
+                                let bencode_value = match Value::from_bencode(&torrent_bytes) {
+                                    Ok(val) => val,
+                                    Err(e) => {
+                                        error!("Failed to parse bencode from torrent bytes: {}", e);
+                                        return HttpResponse::InternalServerError().body("Failed to generate magnet link");
+                                    }
+                                };
+                                let info_dict = match bencode_value {
+                                    Value::Dict(d) => match d.get(&b"info"[..]) {
+                                        Some(val) => val.clone(),
+                                        None => {
+                                            error!("No 'info' dict found in torrent bencode");
+                                            return HttpResponse::InternalServerError().body("Failed to generate magnet link");
+                                        }
+                                    },
+                                    _ => {
+                                        error!("Invalid torrent format: not a dictionary at root");
+                                        return HttpResponse::InternalServerError().body("Failed to generate magnet link");
+                                    }
+                                };
+                                let info_bytes = match info_dict.to_bencode() {
+                                    Ok(bytes) => bytes,
+                                    Err(e) => {
+                                        error!("Failed to re-encode info_dict: {}", e);
+                                        return HttpResponse::InternalServerError().body("Failed to generate magnet link");
+                                    }
+                                };
+                                let info_hash = Sha1::digest(&info_bytes);
+                                let display_name = format!("{}-{}", full_repo.replace("/", "-"), info.sha);
+                                let magnet_link_str = format!("magnet:?xt=urn:btih:{}&dn={}", 
+                                    hex::encode(info_hash), 
+                                    urlencoding::encode(&display_name)
+                                );
+
+                                {
+                                    let mut magnet_links_guard = state.magnet_links.lock().unwrap();
+                                    magnet_links_guard.insert(full_repo.clone(), magnet_link_str.clone());
+                                }
+
+                                return HttpResponse::Ok().content_type("text/html").body(
+                                    render_finished_html_response(&full_repo, &info.sha, &file_names, &magnet_link_str, &state.tera),
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to create torrent for {}: {}", target_dir.display(), e);
+                    }
+                }
+            }
+
             let torrent_r2_key = format!("{}.torrent", info.sha);
             match r2_object_exists(&torrent_r2_key, &state).await {
                 Ok(true) => {
