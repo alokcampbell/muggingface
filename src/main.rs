@@ -47,6 +47,7 @@ use tracing::{info, error};
 use sha1::{Sha1, Digest};
 use hex;
 use urlencoding;
+use serde_json;
 
 const DATA_DIR: &str = "data";
 const TORRENTS_DIR: &str = "/home/jerboa/seeding";
@@ -707,12 +708,10 @@ async fn repo_info(
 async fn progress_json(
     path: web::Path<(String, String)>,
     state: web::Data<Arc<AppState>>,
-    ) -> Result<Json<Progress>, ActixError> {
+) -> HttpResponse {
     let (user, repo) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
 
-    // Modified helper function to get values from Mutex-protected HashMaps
-    // It now directly returns u64 and handles PoisonError internally.
     fn get_from_map(map: &Mutex<HashMap<String, u64>>, key: &str, default: u64) -> u64 {
         match map.lock() {
             Ok(guard) => guard.get(key).copied().unwrap_or(default),
@@ -723,7 +722,7 @@ async fn progress_json(
                     default,
                     poison_error.to_string()
                 );
-                default // Return default if mutex is poisoned
+                default
             }
         }
     }
@@ -740,16 +739,27 @@ async fn progress_json(
     );
 
     info!(
-    "Progress for {}: {}/{} bytes", 
-    full_repo, 
-    downloaded, 
-    total
+        "Progress for {}: {}/{} bytes", 
+        full_repo, 
+        downloaded, 
+        total
     );
     
-    Ok(web::Json(Progress {
-        downloaded,
-        total,
-    }))
+    let progress_data = Progress { downloaded, total };
+
+    match serde_json::to_string(&progress_data) {
+        Ok(json_body) => {
+            HttpResponse::Ok()
+                .content_type("application/json")
+                .body(json_body)
+        }
+        Err(e) => {
+            error!("Failed to serialize Progress struct to JSON for {}: {}", full_repo, e);
+            HttpResponse::InternalServerError()
+                .content_type("application/json")
+                .body("{\"error\":\"Failed to serialize progress data on server\"}")
+        }
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

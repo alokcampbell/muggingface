@@ -3754,6 +3754,7 @@ dependencies = [
  "librqbit",
  "reqwest 0.12.15",
  "serde",
+ "serde_json",
  "sha1",
  "shuttle",
  "shuttle-actix-web",

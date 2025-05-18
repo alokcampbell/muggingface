@@ -19,6 +19,7 @@ hf-hub = { version = "0.3.2", features = ["tokio"] }
 librqbit = { git = "https://github.com/djmango/rqbit.git", package = "librqbit" }
 reqwest = { version = "0.12", features = ["json"] }
 serde = "1.0.219"
+serde_json = "1.0"
 sha1 = "0.10"
 shuttle = "0.8.0"
 shuttle-actix-web = "0.53.0"
