@@ -173,10 +173,6 @@ async fn repo_info(
             }
 
             {
-                let mut progress = state.download_progress.lock().unwrap();
-                progress.insert(full_repo.clone(), 0);
-            }
-            {
                 let mut sizes = state.total_sizes.lock().unwrap();
                 sizes.insert(full_repo.clone(), total_size);
             }
@@ -417,23 +413,6 @@ async fn repo_info(
                                     0
                                 }
                             };
-
-                            {
-                                let mut progress = match state_clone.download_progress.lock() {
-                                    Ok(guard) => guard,
-                                    Err(_) => {
-                                        error!("Mutex was poisoned for download_progress, skipping progress update");
-                                        return;
-                                    }
-                                };
-                                if let Some(downloaded) = progress.get_mut(&full_repo_clone) {
-                                    *downloaded += file_len;
-                                    info!(
-                                        "Updated progress for {}: {} bytes",
-                                        full_repo_clone, *downloaded
-                                    );
-                                }
-                            }
                         }
                         Err(e) => {
                             error!("Failed to download file {}: {}", file_info.rfilename, e);
@@ -549,6 +528,43 @@ async fn repo_info(
     }
 }
 
+// Helper function to calculate directory size (recursive)
+async fn calculate_directory_size(path: &Path) -> std::io::Result<u64> {
+    let mut total_size = 0;
+    
+    if !path.exists() { // Early exit if path doesn't exist
+        return Ok(0);
+    }
+
+    if path.is_file() { // If it's a file (e.g. called on a file path directly), return its size
+        let metadata = tokio::fs::metadata(path).await?;
+        return Ok(metadata.len());
+    }
+
+    if path.is_dir() {
+        let mut dir_entries = match tokio::fs::read_dir(path).await {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0), // Dir disappeared
+            Err(e) => return Err(e), // Other read_dir error
+        };
+        while let Some(entry_result) = dir_entries.next_entry().await? { // Propagates IO errors
+            let entry_path = entry_result.path();
+            if entry_path.is_dir() {
+                total_size += Box::pin(calculate_directory_size(&entry_path)).await?;
+            } else if entry_path.is_file() {
+                match tokio::fs::metadata(&entry_path).await {
+                    Ok(metadata) => total_size += metadata.len(),
+                    Err(e) => {
+                        // Log error but continue calculation for other files
+                        error!("Failed to get metadata for file {} during size calculation: {}", entry_path.display(), e);
+                    }
+                }
+            }
+        }
+    }
+    Ok(total_size)
+}
+
 // this is where we do the progress work, and the unwrapping the values
 #[get("/{user}/{repo}/progress_json")]
 async fn progress_json(
@@ -558,23 +574,36 @@ async fn progress_json(
     let (user, repo) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
 
-    fn get_from_map<'a>(
-        map: &'a Mutex<HashMap<String, u64>>,
-        key: &str,
-        default: u64,
-    ) -> Result<u64, PoisonError<std::sync::MutexGuard<'a, HashMap<String, u64>>>> {
-        let guard = map.lock()?;
-        Ok(guard.get(key).copied().unwrap_or(default))
-    }
-
-    let downloaded = match get_from_map(&state.download_progress, &full_repo, 0) {
-        Ok(v) => v,
-        Err(_) => 0,
+    let target_dir_path_option = { // Scope the lock guard
+        match state.repo_target_paths.lock() {
+            Ok(guard) => guard.get(&full_repo).cloned(),
+            Err(poison_error) => {
+                error!("Mutex for repo_target_paths was poisoned for repo {}: {}", full_repo, poison_error);
+                None // Treat as if path is not found
+            }
+        }
     };
 
-    let total = match get_from_map(&state.total_sizes, &full_repo, 1) {
-        Ok(v) => v,
-        Err(_) => 1,
+    let downloaded = if let Some(target_dir_path) = target_dir_path_option {
+        match calculate_directory_size(&target_dir_path).await {
+            Ok(size) => size,
+            Err(e) => {
+                error!("Error calculating directory size for {}: {}", target_dir_path.display(), e);
+                0 // Default to 0 if calculation fails
+            }
+        }
+    } else {
+        // Path not found in map (e.g., download not started/recorded) or mutex poisoned
+        info!("No target directory path found for {} in progress_json, assuming 0 downloaded.", full_repo);
+        0
+    };
+
+    let total = match state.total_sizes.lock() {
+        Ok(guard) => guard.get(&full_repo).copied().unwrap_or(1), // Default to 1 to prevent division by zero
+        Err(poison_error) => {
+            error!("Mutex for total_sizes was poisoned for repo {}: {}", full_repo, poison_error);
+            1 // Default to 1 in case of poison error
+        }
     };
 
     info!(
@@ -600,7 +629,7 @@ struct Progress {
 struct AppState {
     hf_api: Api,
     magnet_links: Mutex<HashMap<String, String>>,
-    download_progress: Mutex<HashMap<String, u64>>,
+    repo_target_paths: Mutex<HashMap<String, PathBuf>>,
     total_sizes: Mutex<HashMap<String, u64>>,
     tera: Tera,
 }
@@ -619,7 +648,7 @@ async fn main(
     let app_state = Arc::new(AppState {
         hf_api: Api::new().unwrap(),
         magnet_links: Mutex::new(HashMap::new()),
-        download_progress: Mutex::new(HashMap::new()),
+        repo_target_paths: Mutex::new(HashMap::new()),
         total_sizes: Mutex::new(HashMap::new()),
         tera,
     });
