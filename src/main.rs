@@ -14,7 +14,8 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex, PoisonError},
 };
-use tokio::fs::{self};
+use tokio::fs::{self, File};
+use tokio::io::AsyncWriteExt;
 
 // misc
 use anyhow::Result;
@@ -153,7 +154,8 @@ async fn repo_info(
 
             if total_size >= MAX_REPO_SIZE_BYTES {
                 info!(
-                    "Repository {} (Size: {} bytes) exceeds the {} byte limit. Rendering donate.html.",
+                  // Define the 60GB limit
+              "Repository {} (Size: {} bytes) exceeds the {} byte limit. Rendering donate.html.",
                     full_repo,
                     total_size,
                     MAX_REPO_SIZE_BYTES
@@ -172,6 +174,10 @@ async fn repo_info(
                 }
             }
 
+            {
+                let mut progress = state.download_progress.lock().unwrap();
+                progress.insert(full_repo.clone(), 0);
+            }
             {
                 let mut sizes = state.total_sizes.lock().unwrap();
                 sizes.insert(full_repo.clone(), total_size);
@@ -380,7 +386,14 @@ async fn repo_info(
 
             tokio::spawn(async move {
                 let api = Api::new().unwrap();
-                let model = api.model(full_repo_clone.clone());
+                let client = reqwest::Client::builder()
+                    .user_agent("muggingface/1.0")
+                    .redirect(reqwest::redirect::Policy::limited(20))
+                    .build()
+                    .unwrap_or_else(|e| {
+                        error!("Failed to build reqwest client: {}", e);
+                        panic!("Failed to build reqwest client: {}", e);
+                    });
 
                 for file_info in &info_clone.siblings {
                     let file_path = target_dir_clone.join(&file_info.rfilename);
@@ -395,28 +408,77 @@ async fn repo_info(
                         }
                     }
 
-                    match model.get(&file_info.rfilename) {
-                        Ok(cache_path) => {
-                            if let Err(e) = std::fs::copy(&cache_path, &file_path) {
-                                error!("Failed to copy file from cache to target: {}", e);
-                                continue;
-                            }
+                    let download_url = format!(
+                        "https://huggingface.co/{}/resolve/main/{}",
+                        full_repo_clone, file_info.rfilename
+                    );
+                    
+                    // state_clone.hf_api.authorization_header(); // ERROR: No such method - Commented out
+                    // let auth_header_val = state_clone.hf_api.authorization_header(); 
 
-                            let file_len = match fs::metadata(&file_path).await {
-                                Ok(metadata) => metadata.len(),
-                                Err(e) => {
-                                    error!(
-                                        "Failed to get metadata for file {}: {}",
-                                        file_path.display(),
-                                        e
-                                    );
-                                    0
+                    let request_builder = client.get(&download_url);
+                    // if let Some(auth_val) = &auth_header_val { // Commented out as auth_header_val is commented out
+                    //     request_builder = request_builder.header(reqwest::header::AUTHORIZATION, auth_val);
+                    // }
+                    
+                    info!("Starting download for {} from URL: {}", file_info.rfilename, download_url);
+
+                    match request_builder.send().await {
+                        Ok(mut response) => {
+                            if response.status().is_success() {
+                                match File::create(&file_path).await {
+                                    Ok(mut dest_file) => {
+                                        let mut file_downloaded_successfully = true;
+                                        // Corrected loop structure for handling reqwest stream
+                                        loop {
+                                            match response.chunk().await { // This returns Result<Option<Bytes>>
+                                                Ok(Some(chunk)) => { // chunk is reqwest::Bytes here
+                                                    if let Err(e) = dest_file.write_all(&chunk).await { // &chunk is fine, Bytes AsRef [u8]
+                                                        error!("Failed to write chunk to {}: {}", file_path.display(), e);
+                                                        file_downloaded_successfully = false;
+                                                        break; 
+                                                    }
+                                                    let chunk_len = chunk.len() as u64;
+                                                    {
+                                                        let mut progress_map = state_clone.download_progress.lock().unwrap_or_else(|poisoned| {
+                                                            error!("download_progress mutex poisoned: {}", poisoned);
+                                                            poisoned.into_inner()
+                                                        });
+                                                        *progress_map.entry(full_repo_clone.clone()).or_default() += chunk_len;
+                                                        info!("Repo {}: downloaded {} bytes for file {}, total {} for repo", 
+                                                              full_repo_clone, chunk_len, file_info.rfilename, 
+                                                              progress_map.get(&full_repo_clone).unwrap_or(&0));
+                                                    }
+                                                }
+                                                Ok(None) => { // End of stream signifies success for this file
+                                                    info!("Finished streaming file successfully: {}", file_info.rfilename);
+                                                    break; // Exit the loop for this file
+                                                }
+                                                Err(e) => { // An error occurred while streaming chunks
+                                                    error!("Error while streaming chunk for {}: {}", file_info.rfilename, e);
+                                                    file_downloaded_successfully = false;
+                                                    break; // Exit the loop for this file
+                                                }
+                                            }
+                                        }
+                                        // After the loop, check file_downloaded_successfully
+                                        if file_downloaded_successfully {
+                                            info!("Successfully downloaded and wrote file: {}", file_path.display());
+                                        } else {
+                                            error!("Failed to complete download for file: {}. It might be partial.", file_path.display());
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to create file {}: {}", file_path.display(), e);
+                                    }
                                 }
-                            };
+                            } else {
+                                error!("Download request for {} failed with status: {}. Body: {:?}", 
+                                       download_url, response.status(), response.text().await.unwrap_or_else(|_| String::from("[could not read body]")));
+                            }
                         }
                         Err(e) => {
-                            error!("Failed to download file {}: {}", file_info.rfilename, e);
-                            continue;
+                            error!("Failed to send download request for {}: {}", download_url, e);
                         }
                     }
                 }
@@ -528,43 +590,6 @@ async fn repo_info(
     }
 }
 
-// Helper function to calculate directory size (recursive)
-async fn calculate_directory_size(path: &Path) -> std::io::Result<u64> {
-    let mut total_size = 0;
-    
-    if !path.exists() { // Early exit if path doesn't exist
-        return Ok(0);
-    }
-
-    if path.is_file() { // If it's a file (e.g. called on a file path directly), return its size
-        let metadata = tokio::fs::metadata(path).await?;
-        return Ok(metadata.len());
-    }
-
-    if path.is_dir() {
-        let mut dir_entries = match tokio::fs::read_dir(path).await {
-            Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0), // Dir disappeared
-            Err(e) => return Err(e), // Other read_dir error
-        };
-        while let Some(entry_result) = dir_entries.next_entry().await? { // Propagates IO errors
-            let entry_path = entry_result.path();
-            if entry_path.is_dir() {
-                total_size += Box::pin(calculate_directory_size(&entry_path)).await?;
-            } else if entry_path.is_file() {
-                match tokio::fs::metadata(&entry_path).await {
-                    Ok(metadata) => total_size += metadata.len(),
-                    Err(e) => {
-                        // Log error but continue calculation for other files
-                        error!("Failed to get metadata for file {} during size calculation: {}", entry_path.display(), e);
-                    }
-                }
-            }
-        }
-    }
-    Ok(total_size)
-}
-
 // this is where we do the progress work, and the unwrapping the values
 #[get("/{user}/{repo}/progress_json")]
 async fn progress_json(
@@ -574,36 +599,23 @@ async fn progress_json(
     let (user, repo) = path.into_inner();
     let full_repo = format!("{}/{}", user, repo);
 
-    let target_dir_path_option = { // Scope the lock guard
-        match state.repo_target_paths.lock() {
-            Ok(guard) => guard.get(&full_repo).cloned(),
-            Err(poison_error) => {
-                error!("Mutex for repo_target_paths was poisoned for repo {}: {}", full_repo, poison_error);
-                None // Treat as if path is not found
-            }
-        }
+    fn get_from_map<'a>(
+        map: &'a Mutex<HashMap<String, u64>>,
+        key: &str,
+        default: u64,
+    ) -> Result<u64, PoisonError<std::sync::MutexGuard<'a, HashMap<String, u64>>>> {
+        let guard = map.lock()?;
+        Ok(guard.get(key).copied().unwrap_or(default))
+    }
+
+    let downloaded = match get_from_map(&state.download_progress, &full_repo, 0) {
+        Ok(v) => v,
+        Err(_) => 0,
     };
 
-    let downloaded = if let Some(target_dir_path) = target_dir_path_option {
-        match calculate_directory_size(&target_dir_path).await {
-            Ok(size) => size,
-            Err(e) => {
-                error!("Error calculating directory size for {}: {}", target_dir_path.display(), e);
-                0 // Default to 0 if calculation fails
-            }
-        }
-    } else {
-        // Path not found in map (e.g., download not started/recorded) or mutex poisoned
-        info!("No target directory path found for {} in progress_json, assuming 0 downloaded.", full_repo);
-        0
-    };
-
-    let total = match state.total_sizes.lock() {
-        Ok(guard) => guard.get(&full_repo).copied().unwrap_or(1), // Default to 1 to prevent division by zero
-        Err(poison_error) => {
-            error!("Mutex for total_sizes was poisoned for repo {}: {}", full_repo, poison_error);
-            1 // Default to 1 in case of poison error
-        }
+    let total = match get_from_map(&state.total_sizes, &full_repo, 1) {
+        Ok(v) => v,
+        Err(_) => 1,
     };
 
     info!(
@@ -629,7 +641,7 @@ struct Progress {
 struct AppState {
     hf_api: Api,
     magnet_links: Mutex<HashMap<String, String>>,
-    repo_target_paths: Mutex<HashMap<String, PathBuf>>,
+    download_progress: Mutex<HashMap<String, u64>>,
     total_sizes: Mutex<HashMap<String, u64>>,
     tera: Tera,
 }
@@ -648,7 +660,7 @@ async fn main(
     let app_state = Arc::new(AppState {
         hf_api: Api::new().unwrap(),
         magnet_links: Mutex::new(HashMap::new()),
-        repo_target_paths: Mutex::new(HashMap::new()),
+        download_progress: Mutex::new(HashMap::new()),
         total_sizes: Mutex::new(HashMap::new()),
         tera,
     });
