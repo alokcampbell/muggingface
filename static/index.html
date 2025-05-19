@@ -1,319 +1,181 @@
-<!DOCTYPE html>
-<html lang="en">
+{% extends "base.html" %}
 
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>muggingface.co</title>
-  <link rel="icon" href="/static/favicon.ico" type="image/x-icon" />
-  <style>
-    * {
-      box-sizing: border-box;
-    }
+{% block title %}muggingface.co - Torrent Your Favorite Hugging Face Models{% endblock title %}
 
-    body,
-    html {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: #f9f9f9;
-      color: #333;
-      display: flex;
-      flex-direction: column;
-      overflow-x: hidden; 
-      transition: background-color 0.3s, color 0.3s; 
-    }
+{% block head_extra %}
+<style>
+  p {
+    font-size: 1.2rem;
+    margin-bottom: 1rem;
+  }
 
-    header {
-      background-color: #e9ecef; 
-      padding: 0.4rem 1rem;
-      border-bottom: 1px solid #dee2e6;
-      width: 100%;
-    }
+  ol {
+    list-style-position: inside;
+    font-size: 1.1rem;
+    margin-bottom: 2rem;
+  }
 
-    .header-content-wrapper {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      max-width: 1140px; 
-      margin: 0 auto;
-    }
+  li {
+    margin: 0.5rem 0;
+  }
 
-    .site-title {
-      font-size: 1.5rem;
-      font-weight: bold;
-      color: #343a40;
-    }
+  img.logo-image {
+    max-width: 300px;
+    height: auto;
+    margin-bottom: 2rem;
+  }
+  body.dark-mode img.logo-image {
+      filter: brightness(0.8) contrast(1.2);
+  }
 
-    #darkModeToggle {
-      background: none;
-      border: 1px solid #ccc;
-      border-radius: 20px; 
-      padding: 0.5rem 0.8rem;
-      cursor: pointer;
-      font-size: 1.2rem; 
-      line-height: 1;
-      transition: background-color 0.3s, border-color 0.3s;
-    }
-    #darkModeToggle:hover {
-        border-color: #888;
-    }
+  .gerbiltime {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    z-index: 999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 
+  .container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    text-align: center;
+  }
 
-    body.dark-mode {
-      background-color: #1a1a1a; 
-      color: #dcdcdc; 
-    }
+  .welcome {
+    font-size: 3rem;
+    font-weight: bold;
+    margin-bottom: 1rem;
+  }
+  body.dark-mode .welcome {
+    color: #e0e0e0;
+  }
 
-    body.dark-mode header {
-      background-color: #2c2c2c; 
-      border-bottom: 1px solid #444;
-    }
+  .gerbilcontent {
+    background-color: #fff;
+    color: #333;
+    padding: 2rem;
+    border-radius: 10px;
+    text-align: left;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.6);
+  }
+  body.dark-mode .gerbilcontent {
+    background-color: #3a3a3a;
+    color: #dcdcdc;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+  }
 
-    body.dark-mode .site-title {
-      color: #f8f9fa;
-    }
+  .gerbilcontent h2 {
+    margin-top: 0;
+  }
 
-    body.dark-mode #darkModeToggle {
-      border-color: #555;
-    }
-     body.dark-mode #darkModeToggle:hover {
-        border-color: #777;
-    }
+  .gerbilcontent label {
+    display: flex;
+    align-items: center;
+    margin-top: 1rem;
+  }
 
-    body.dark-mode a {
-        color: #8ab4f8; 
-    }
-    body.dark-mode a:hover {
-        color: #adcffc;
-    }
+  .gerbilcontent input[type="checkbox"] {
+    margin-right: 0.5rem;
+  }
 
-    p {
-      font-size: 1.2rem;
-      margin-bottom: 1rem;
-    }
+  .gerbilcontent button {
+    margin-top: 1rem;
+    padding: 0.5rem 1rem;
+    background-color: #4caf50;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+  }
+  .gerbilcontent button:hover {
+    background-color: #45a049;
+  }
+  body.dark-mode .gerbilcontent button {
+    background-color: #5cb85c;
+  }
+  body.dark-mode .gerbilcontent button:hover {
+    background-color: #4cae4c;
+  }
 
-    ol {
-      list-style-position: inside;
-      font-size: 1.1rem;
-      margin-bottom: 2rem;
-    }
+  .gerbilcontent button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+  }
+  body.dark-mode .gerbilcontent button:disabled {
+    background-color: #555;
+    color: #888;
+  }
+</style>
+{% endblock head_extra %}
 
-    li {
-      margin: 0.5rem 0;
-    }
+{% block page_title %}muggingface.co{% endblock page_title %}
 
-    img.logo-image {
-      max-width: 300px;
-      height: auto;
-      margin-bottom: 2rem;
-    }
-
-    .content-wrapper { 
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        width: 100%; 
-    }
-
-    main { 
-        flex: 1;
-    }
-
-    footer {
-      width: 100%;
-      background: #f1f1f1; 
-      padding: 1rem;
-      font-size: 0.9rem;
-      text-align: center;
-      border-top: 1px solid #ddd;
-      margin-top: auto; 
-    }
-    body.dark-mode footer {
-        background-color: #252525; 
-        border-top: 1px solid #444;
-        color: #aaa;
-    }
-
-    .gerbiltime {
-      position: fixed;
-      top: 0;
-      left: 0;
-      height: 100%;
-      width: 100%;
-      background-color: rgba(0, 0, 0, 0.8);
-      color: white; 
-      z-index: 999;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem;
-      text-align: center;
-    }
-
-    .welcome {
-      font-size: 3rem;
-      font-weight: bold;
-      margin-bottom: 1rem;
-    }
-    body.dark-mode .welcome {
-        color: #e0e0e0;
-    }
-
-    .gerbilcontent {
-      background-color: #fff; 
-      color: #333; 
-      padding: 2rem;
-      border-radius: 10px;
-      text-align: left;
-      max-width: 400px;
-      width: 90%;
-      box-shadow: 0 0 20px rgba(0, 0, 0, 0.6);
-    }
-    body.dark-mode .gerbilcontent {
-        background-color: #3a3a3a;
-        color: #dcdcdc; 
-        box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
-    }
-
-    .gerbilcontent h2 {
-      margin-top: 0;
-    }
-
-    .gerbilcontent label {
-      display: flex;
-      align-items: center;
-      margin-top: 1rem;
-    }
-
-    .gerbilcontent input[type="checkbox"] {
-      margin-right: 0.5rem;
-    }
-
-    .gerbilcontent button {
-      margin-top: 1rem;
-      padding: 0.5rem 1rem;
-      background-color: #4caf50;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      transition: background-color 0.3s;
-    }
-    .gerbilcontent button:hover {
-        background-color: #45a049;
-    }
-    body.dark-mode .gerbilcontent button {
-        background-color: #5cb85c; 
-    }
-    body.dark-mode .gerbilcontent button:hover {
-        background-color: #4cae4c;
-    }
-
-    .gerbilcontent button:disabled {
-      background-color: #ccc;
-      cursor: not-allowed;
-    }
-    body.dark-mode .gerbilcontent button:disabled {
-        background-color: #555;
-        color: #888;
-    }
-  </style>
-</head>
-
-<body>
-  <header>
-    <div class="header-content-wrapper">
-        <button id="darkModeToggle" aria-label="Toggle dark mode">🌙</button>
+{% block content %}
+<div class="gerbiltime" id="modal">
+  <div class="gerbilcontent">
+    <h2>Welcome to muggingface.co</h2>
+    <p>
+      By clicking "Continue" you agree to our Terms of Service and Fair Use Policy.
+      All content is provided "as‑is" with no changes, warranty, etc. The content is not owned by us, we are not liable
+      for any issues.
+      You also consent to using the service at your own risk.
+      </p>
+      <label>
+        <input type="checkbox" id="agreeCheckbox" />
+      I agree to the terms and conditions.
+      </label>
+    <button id="continueButton" disabled>Continue</button>
     </div>
-  </header>
+    </div>
+    
+    <div class="container">
+  <h1 class="welcome">Welcome to muggingface.co</h1>
+  <img src="/static/muggingface.png" alt="muggingface.co Logo" class="logo-image">
+  <p>Turn any Hugging Face repo into a torrent.</p>
+  <p>To get started:</p>
+  <ol>
+    <li>Find a model on <a href="https://huggingface.co/models" target="_blank" rel="noopener">huggingface.co</a>.</li>
+    <li>Copy the model name (e.g., <code>bert-base-uncased</code> or <code>stabilityai/stable-diffusion-2-1</code>).</li>
+    <li>Paste it into the URL after <code>muggingface.co/</code> (e.g., <code>muggingface.co/bert-base-uncased</code>).</li>
+    <li>Wait for the torrent to generate.</li>
+    <li>Download using the magnet link.</li>
+    </ol>
+</div>
+{% endblock content %}
 
-  <div class="content-wrapper"> 
-    <main> 
-      <div class="gerbiltime" id="modal">
-        <div class="gerbilcontent">
-          <h2>Welcome to muggingface.co</h2>
-          <p>
-            By clicking "Continue" you agree to our Terms of Service and Fair Use Policy. 
-            All content is provided "as‑is" with no changes, warranty, etc. The content is not owned by us, we are not liable for any issues.
-            You also consent to using the service at your own risk.
-          </p>
-          <label>
-            <input type="checkbox" id="agreeCheckbox" />
-            I agree to the terms of service and fair use policy.
-          </label>
-          <button id="continueBtn" disabled>Continue</button>
-        </div>
-      </div>
-      
-      <div class="container">
-        <div class="welcome">muggingface.co</div>
-        <p>Simply follow our three step program:</p>
-        <ol>
-          <li>Go to a model on huggingface.co</li>
-          <li>Swap the URL from huggingface.co to muggingface.co</li>
-          <li>???</li>
-          <li>Profit</li>
-        </ol>
-        <img src="/static/muggingface_large.png" alt="muggingface.co" class="logo-image" />
-      </div>
-    </main> 
+{% block scripts %}
+<script>
+      const modal = document.getElementById("modal");
+      const agreeCheckbox = document.getElementById("agreeCheckbox");
+      const continueButton = document.getElementById("continueButton");
 
-    <footer>
-        &copy; made by
-        <a href="https://github.com/alokcampbell" target="_blank" rel="noopener">big gerbil</a>
-        and
-        <a href="https://github.com/djmango" target="_blank" rel="noopener">little gerbil</a>
-    </footer>
-  </div> 
+      // Check if user has already agreed
+      if (localStorage.getItem("agreedToTerms") === "true") {
+        modal.style.display = "none";
+      }
 
-  <script>
-    const darkModeToggleBtn = document.getElementById('darkModeToggle');
-    const body = document.body;
-    const currentThemeSetting = localStorage.getItem('theme');
+      agreeCheckbox.addEventListener("change", function () {
+        continueButton.disabled = !this.checked;
+      });
 
-    if (currentThemeSetting === 'dark') {
-        body.classList.add('dark-mode');
-        darkModeToggleBtn.textContent = '☀️'; 
-    } else {
-        darkModeToggleBtn.textContent = '🌙'; 
-    }
-
-    darkModeToggleBtn.addEventListener('click', () => {
-        body.classList.toggle('dark-mode');
-        let newTheme = 'light';
-        if (body.classList.contains('dark-mode')) {
-            newTheme = 'dark';
-            darkModeToggleBtn.textContent = '☀️';
-        } else {
-            darkModeToggleBtn.textContent = '🌙';
+      continueButton.addEventListener("click", function () {
+        if (agreeCheckbox.checked) {
+          localStorage.setItem("agreedToTerms", "true");
+          modal.style.display = "none";
         }
-        localStorage.setItem('theme', newTheme);
-    });
-
-    const gerbilbox = document.getElementById('agreeCheckbox');
-    const gerbilbutton = document.getElementById('continueBtn');
-    const modal = document.getElementById('modal');
-
-    if (gerbilbox && gerbilbutton && modal) { 
-        gerbilbox.addEventListener('change', () => {
-            gerbilbutton.disabled = !gerbilbox.checked;
-        });
-
-        gerbilbutton.addEventListener('click', () => {
-            modal.style.display = 'none';
-            document.body.style.overflow = 'auto'; 
-        });
-    }
-  </script>
-</body>
-
-</html>
+      });
+</script>
+{% endblock scripts %}

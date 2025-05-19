@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}muggingface.co{% endblock title %}</title>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="/static/css/shared.css">
+    {% block head_extra %}{% endblock head_extra %}
+</head>
+
+<body>
+    <header>
+        <div class="header-content-wrapper">
+            <a href="/" id="header-logo-container">
+                <img src="/static/muggingface.png" alt="Mugging Face Home" id="header-logo-image">
+            </a>
+            <span class="site-title" id="header-site-title">{% block page_title %}{% endblock page_title %}</span>
+            <button id="darkModeToggle" aria-label="Toggle dark mode">🌙</button>
+        </div>
+    </header>
+
+    <div class="content-wrapper">
+        <main>
+            {% block content %}
+            {% endblock content %}
+        </main>
+        <footer>
+            made by
+            <a href="https://github.com/alokcampbell" target="_blank" rel="noopener">big gerbil</a>
+            and
+            <a href="https://github.com/djmango" target="_blank" rel="noopener">little gerbil</a>
+        </footer>
+    </div>
+
+    <script>
+        const darkModeToggleBtn = document.getElementById('darkModeToggle');
+        const body = document.body;
+        const currentThemeSetting = localStorage.getItem('theme');
+
+        if (currentThemeSetting === 'dark') {
+            body.classList.add('dark-mode');
+            darkModeToggleBtn.textContent = '☀️';
+        } else {
+            darkModeToggleBtn.textContent = '🌙';
+        }
+
+        darkModeToggleBtn.addEventListener('click', () => {
+            body.classList.toggle('dark-mode');
+            let newTheme = 'light';
+            if (body.classList.contains('dark-mode')) {
+                newTheme = 'dark';
+                darkModeToggleBtn.textContent = '☀️';
+            } else {
+                darkModeToggleBtn.textContent = '🌙';
+            }
+            localStorage.setItem('theme', newTheme);
+        });
+    </script>
+    {% block scripts %}{% endblock scripts %}
+</body>
+
+</html>

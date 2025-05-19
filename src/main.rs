@@ -88,8 +88,15 @@ fn render_finished_html_response(
 }
 
 #[get("/")]
-async fn index() -> impl Responder {
-    NamedFile::open(PathBuf::from("static/index.html"))
+async fn index(state: web::Data<Arc<AppState>>) -> impl Responder {
+    let context = Context::new();
+    match state.tera.render("index.html", &context) {
+        Ok(html_body) => HttpResponse::Ok().content_type("text/html").body(html_body),
+        Err(e) => {
+            error!("Failed to render index.html: {}", e);
+            HttpResponse::InternalServerError().body("Server error: Could not render homepage.")
+        }
+    }
 }
 
 #[get("/{user}/{repo}{tail:.*}")]

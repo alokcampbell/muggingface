@@ -1,303 +1,182 @@
-<!DOCTYPE html>
-<html lang="en">
+{% extends "base.html" %}
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ full_repo }} - Finished</title>
-    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
-    <style>
-        * { box-sizing: border-box; }
-        body, html {
-            margin: 0;
-            padding: 0;
-            height: 100%;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f9f9f9;
-            color: #333;
-            display: flex;
-            flex-direction: column;
-            overflow-x: hidden;
-            transition: background-color 0.3s, color 0.3s;
-        }
+{% block title %}{{ full_repo }} - Finished - muggingface.co{% endblock title %}
 
-        header {
-            background-color: #e9ecef;
-            padding: 0.4rem 1rem;
-            border-bottom: 1px solid #dee2e6;
-            width: 100%;
-        }
-        .header-content-wrapper {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            max-width: 1140px;
-            margin: 0 auto;
-        }
-        .site-title {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: #343a40;
-        }
-        #darkModeToggle {
-            background: none;
-            border: 1px solid #ccc;
-            border-radius: 20px;
-            padding: 0.5rem 0.8rem;
-            cursor: pointer;
-            font-size: 1.2rem;
-            line-height: 1;
-            transition: background-color 0.3s, border-color 0.3s;
-        }
-         #darkModeToggle:hover {
-            border-color: #888;
-        }
+{% block head_extra %}
+<style>
+    .finished-container {
+        padding: 2rem;
+        text-align: left;
+    }
 
-        body.dark-mode {
-            background-color: #1a1a1a;
-            color: #dcdcdc;
-        }
-        body.dark-mode header {
-            background-color: #2c2c2c;
-            border-bottom: 1px solid #444;
-        }
-        body.dark-mode .site-title {
-            color: #f8f9fa;
-        }
-        body.dark-mode #darkModeToggle {
-            border-color: #555;
-        }
-        body.dark-mode #darkModeToggle:hover {
-            border-color: #777;
-        }
-        body.dark-mode a {
-            color: #8ab4f8;
-        }
-        body.dark-mode a:hover {
-            color: #adcffc;
-        }
+    body.dark-mode .finished-container h1,
+    body.dark-mode .finished-container h2,
+    body.dark-mode .finished-container h3,
+    body.dark-mode .info-details dt,
+    body.dark-mode .info-details dd {
+        color: #e0e0e0;
+    }
 
-        .content-wrapper { flex: 1; display: flex; flex-direction: column; width: 100%;}
-        main { flex: 1; }
-        footer {
-            width: 100%;
-            background: #f1f1f1;
-            padding: 1rem;
-            font-size: 0.9rem;
-            text-align: center;
-            border-top: 1px solid #ddd;
-            margin-top: auto;
-        }
-        body.dark-mode footer {
-            background-color: #252525;
-            border-top: 1px solid #444;
-            color: #aaa;
-        }
+    body.dark-mode .finished-container ul {
+        color: #dcdcdc;
+    }
 
-        .finished-container {
-            padding: 2rem;
-            text-align: left;
-        }
-        body.dark-mode .finished-container h1,
-        body.dark-mode .finished-container h2,
-        body.dark-mode .finished-container h3,
-        body.dark-mode .info-details dt,
-        body.dark-mode .info-details dd {
-            color: #e0e0e0;
-        }
-        body.dark-mode .finished-container ul {
-            color: #dcdcdc; 
-        }
-        body.dark-mode .finished-container h1.repo-title {
-            background-color: #000000;
-            border-bottom: 1px solid #5a4c41;
-        }
-        body.dark-mode .info-details {
-            border-top: 1px solid #444;
-            border-bottom: 1px solid #444;
-        }
-        body.dark-mode .download-link-section a {
-            color: #2ecc71;
-            text-decoration: underline;
-            font-weight: normal;
-            padding: 0;
-            border-radius: 0;
-        }
-        body.dark-mode .download-link-section a:hover {
-            color: #38f887;
-        }
+    body.dark-mode .finished-container h1.repo-title {
+        background-color: #000000; /* Darker than header for emphasis */
+        border-bottom: 1px solid #5a4c41; /* Darker border */
+    }
+    body.dark-mode .info-details {
+        border-top: 1px solid #444;
+        border-bottom: 1px solid #444;
+    }
+    body.dark-mode .download-link-section a {
+        color: #2ecc71; /* Brighter green for dark mode */
+        text-decoration: underline;
+        font-weight: normal;
+        padding: 0;
+        border-radius: 0;
+    }
+    body.dark-mode .download-link-section a:hover {
+        color: #38f887;
+    }
 
-        .finished-container h1.repo-title {
-            font-size: 1.8em;
-            font-weight: bold;
-            background-color: #ffffff;
-            padding: 10px 15px;
-            margin: -2rem -2rem 1.5rem -2rem;
-            border-bottom: 1px solid #e0d6c6;
-            color: #333;
-        }
+    .finished-container h1.repo-title {
+        font-size: 1.8em;
+        font-weight: bold;
+        background-color: #ffffff; /* Light background */
+        padding: 10px 15px;
+        margin: -2rem -2rem 1.5rem -2rem; /* Extend to edges */
+        border-bottom: 1px solid #e0d6c6; /* Light border */
+        color: #333;
+    }
 
-        .info-details {
-            margin-bottom: 1.5rem;
-            padding: 10px 0;
-            border-top: 1px solid #eee;
-            border-bottom: 1px solid #eee;
-        }
-        .info-details dl {
-            margin: 0;
-            padding: 0;
-        }
-        .info-details dt,
-        .info-details dd {
-            padding: 5px 0;
-            line-height: 1.6;
-        }
-        .info-details dt {
-            font-weight: bold;
-            float: left;
-            width: 120px;
-            clear: left;
-        }
-        .info-details dd {
-            margin-left: 130px;
-        }
-        .info-details dd ul {
-            list-style-type: disc;
-            padding-left: 20px;
-            margin: 0;
-        }
-        .info-details dd li {
-            margin-bottom: 2px;
-        }
+    .info-details {
+        margin-bottom: 1.5rem;
+        padding: 10px 0;
+        border-top: 1px solid #eee;
+        border-bottom: 1px solid #eee;
+    }
+    .info-details dl {
+        margin: 0;
+        padding: 0;
+    }
+    .info-details dt,
+    .info-details dd {
+        padding: 5px 0;
+        line-height: 1.6;
+    }
+    .info-details dt {
+        font-weight: bold;
+        float: left;
+        width: 120px;
+        clear: left;
+    }
+    .info-details dd {
+        margin-left: 130px;
+    }
+    .info-details dd ul {
+        list-style-type: disc;
+        padding-left: 20px;
+        margin: 0;
+    }
+    .info-details dd li {
+        margin-bottom: 2px;
+    }
 
-        .description-section {
-            margin-top: 1.5rem;
-            padding: 10px;
-            background-color: #f9f9f9;
-            border: 1px solid #eee;
-            border-radius: 4px;
-            line-height: 1.6;
-        }
-        body.dark-mode .description-section {
-            background-color: #2c2c2c;
-            border-color: #444;
-        }
+    .description-section {
+        margin-top: 1.5rem;
+        padding: 10px;
+        background-color: #f9f9f9;
+        border: 1px solid #eee;
+        border-radius: 4px;
+        line-height: 1.6;
+    }
+    body.dark-mode .description-section {
+        background-color: #2c2c2c;
+        border-color: #444;
+    }
 
-        .download-link-section {
-            margin-top: 1.5rem;
-            margin-bottom: 1.5rem;
-        }
-        .download-link-section a {
-            color: #16a085;
-            text-decoration: none;
-            font-weight: normal;
-        }
-        .download-link-section a:hover {
-            color: #1db99b;
-        }
-        .download-link-section .magnet-link-text {
-            font-weight: bold;
-            text-decoration: underline;
-        }
-        .download-link-section .magnet-emoji {
-            text-decoration: none !important;
-            font-weight: normal;
-            margin-right: 0.3em;
-        }
-        .finished-container h2, .finished-container h3 {
-        }
-        .finished-container ul {
-            list-style-type: none;
-            padding: 0;
-            margin-bottom: 1rem;
-        }
-        .finished-container li {
-            margin: 0.2rem 0;
-        }
-        .finished-container img {
-            max-width: 10%; 
-            height: auto;
-            margin-top: 1rem;
-        }
-        body.dark-mode .finished-container img {
-            filter: brightness(0.8) contrast(1.2); 
-        }
-    </style>
-</head>
+    .download-link-section {
+        margin-top: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+    .download-link-section a {
+        color: #16a085; /* Teal color for the link */
+        text-decoration: none;
+        font-weight: normal;
+    }
+    .download-link-section a:hover {
+        color: #1db99b; /* Lighter teal on hover */
+    }
+    .download-link-section .magnet-link-text {
+        font-weight: bold;
+        text-decoration: underline;
+    }
+    .download-link-section .magnet-emoji {
+        text-decoration: none !important; /* Ensure emoji has no underline */
+        font-weight: normal;
+        margin-right: 0.3em;
+    }
+    /* General list styling (already present) */
+    .finished-container h2, .finished-container h3 {}
+    .finished-container ul {
+        list-style-type: none;
+        padding: 0;
+        margin-bottom: 1rem;
+    }
+    .finished-container li {
+        margin: 0.2rem 0;
+    }
+    .finished-container img { /* For any images, e.g. logo if added */
+        max-width: 10%; 
+        height: auto;
+        margin-top: 1rem;
+    }
+    body.dark-mode .finished-container img {
+        filter: brightness(0.8) contrast(1.2); 
+    }
+</style>
+{% endblock head_extra %}
 
-<body>
-    <header>
-        <div class="header-content-wrapper">
-            <button id="darkModeToggle" aria-label="Toggle dark mode">🌙</button>
-        </div>
-    </header>
+{% block page_title %}{{ full_repo }}{% endblock page_title %}
 
-    <div class="content-wrapper">
-        <main>
-            <div class="finished-container">
-                <h1 class="repo-title">{{ full_repo }}</h1>
-                
-                <div class="info-details">
-                    <dl>
-                        <dt>Info Hash:</dt>
-                        <dd>{{ sha }}</dd>
-                        
-                        <dt>Total Files:</dt>
-                        <dd>{{ file_names | length }}</dd>
+{% block content %}
+<div class="finished-container">
+    <h1 class="repo-title">{{ full_repo }}</h1>
 
-                        <dt>File Names:</dt>
-                        <dd>
-                            <ul>
-                                {% for file in file_names %}
-                                <li>{{ file }}</li>
-                                {% endfor %}
-                            </ul>
-                        </dd>
+    <div class="info-details">
+        <dl>
+            <dt>Info Hash:</dt>
+            <dd>{{ sha }}</dd>
+
+            <dt>Total Files:</dt>
+            <dd>{{ file_names | length }}</dd>
+
+            <dt>File Names:</dt>
+            <dd>
+                <ul>
+                    {% for file_name in file_names %}
+                    <li>{{ file_name }}</li>
+                    {% endfor %}
+                    </ul>
+                    </dd>
                     </dl>
-                </div>
+                    </div>
 
-                <div class="download-link-section">
-                    <a href="{{ magnet_link }}"><span class="magnet-emoji">🧲</span><span class="magnet-link-text">MAGNET LINK</span></a>
-                </div>
+    <div class="download-link-section">
+        <h3><span class="magnet-emoji">🧲</span> <a href="{{ magnet_link }}" class="magnet-link-text">MAGNET LINK</a>
+        </h3>
+        </div>
 
-                <div class="description-section">
-                    <p>This torrent was automatically generated by muggingface.co from the Hugging Face repository. Please ensure you have the rights to download and share this content.</p>
-                    <p>For large repositories, consider donating to help us increase server capacity and download limits!</p>
-                </div>
-            </div>
-        </main>
-        <footer>
-            &copy; made by
-            <a href="https://github.com/alokcampbell" target="_blank" rel="noopener">big gerbil</a>
-            and
-            <a href="https://github.com/djmango" target="_blank" rel="noopener">little gerbil</a>
-        </footer>
+    <div class="description-section">
+        <p>Your download is ready. Click the magnet link above to start downloading with your torrent client.</p>
+        <p>If you don't have a torrent client, we recommend <a href="https://www.qbittorrent.org/"
+                target="_blank">qBittorrent</a> (free, open-source, no ads) or <a href="https://www.transmissionbt.com/"
+                target="_blank">Transmission</a> (free, open-source).</p>
+        <p>Thank you for using muggingface.co!</p>
     </div>
 
-    <script>
-        const darkModeToggleBtn = document.getElementById('darkModeToggle');
-        const body = document.body;
-        const currentThemeSetting = localStorage.getItem('theme');
-
-        if (currentThemeSetting === 'dark') {
-            body.classList.add('dark-mode');
-            darkModeToggleBtn.textContent = '☀️';
-        } else {
-            darkModeToggleBtn.textContent = '🌙';
-        }
-
-        darkModeToggleBtn.addEventListener('click', () => {
-            body.classList.toggle('dark-mode');
-            let newTheme = 'light';
-            if (body.classList.contains('dark-mode')) {
-                newTheme = 'dark';
-                darkModeToggleBtn.textContent = '☀️';
-            } else {
-                darkModeToggleBtn.textContent = '🌙';
-            }
-            localStorage.setItem('theme', newTheme);
-        });
-    </script>
-</body>
-
-</html>
+    {# Optionally, include a small logo or branding image here #}
+    {# <img src="/static/muggingface.png" alt="muggingface.co logo"> #}
+    </div>
+    {% endblock content %}
