@@ -1,4 +1,4 @@
-use actix_files::{Files, NamedFile};
+use actix_files::Files;
 use actix_web::middleware::Logger;
 use actix_web::{
     get,
@@ -487,7 +487,6 @@ async fn repo_info(
             let repo_clone_for_spawn = repo.clone(); // Clone repo
 
             tokio::spawn(async move {
-                let api = Api::new().unwrap();
                 let client = reqwest::Client::builder()
                     .user_agent("muggingface/1.0")
                     .redirect(reqwest::redirect::Policy::limited(20))

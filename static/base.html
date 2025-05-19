@@ -17,7 +17,9 @@
                 <img src="/static/muggingface.png" alt="Mugging Face Home" id="header-logo-image">
             </a>
             <span class="site-title" id="header-site-title">{% block page_title %}{% endblock page_title %}</span>
-            <button id="darkModeToggle" aria-label="Toggle dark mode">🌙</button>
+            <button id="darkModeToggle" aria-label="Toggle dark mode">
+                <!-- SVG will be inserted here by script -->
+            </button>
         </div>
     </header>
 
@@ -37,25 +39,64 @@
     <script>
         const darkModeToggleBtn = document.getElementById('darkModeToggle');
         const body = document.body;
-        const currentThemeSetting = localStorage.getItem('theme');
+                let currentThemeSetting = localStorage.getItem('theme');
 
-        if (currentThemeSetting === 'dark') {
-            body.classList.add('dark-mode');
-            darkModeToggleBtn.textContent = '☀️';
-        } else {
-            darkModeToggleBtn.textContent = '🌙';
+                const sunIconPath = '/static/svg/dark-theme.svg';
+                const moonIconPath = '/static/svg/light-theme.svg';
+
+                async function loadSvg(filePath) {
+                    try {
+                        const response = await fetch(filePath);
+                        if (!response.ok) {
+                            throw new Error(`SVG not found: ${response.status}`);
+                        }
+                        return await response.text();
+                    } catch (error) {
+                        console.error('Error loading SVG:', error);
+                        return '<span style="font-size: 0.8em;">?</span>';
+                    }
+                }
+
+                async function setTheme(theme, saveToLocalStorage = true) {
+                    let iconSvg;
+                    if (theme === 'dark') {
+                        body.classList.add('dark-mode');
+                    iconSvg = await loadSvg(moonIconPath);
+                } else {
+                    body.classList.remove('dark-mode');
+                    iconSvg = await loadSvg(sunIconPath);
+                }
+                darkModeToggleBtn.innerHTML = iconSvg;
+                if (saveToLocalStorage) {
+                    localStorage.setItem('theme', theme);
+                }
         }
 
-        darkModeToggleBtn.addEventListener('click', () => {
-            body.classList.toggle('dark-mode');
-            let newTheme = 'light';
-            if (body.classList.contains('dark-mode')) {
-                newTheme = 'dark';
-                darkModeToggleBtn.textContent = '☀️';
+                // Determine initial theme
+                const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+
+                if (currentThemeSetting) {
+                    // User has an explicit preference saved
+                    setTheme(currentThemeSetting, false); // false because it's already saved
+                } else if (prefersDarkScheme.matches) {
+                    // No user preference, but OS prefers dark
+                    setTheme('dark', true); // true to save this OS-derived preference for consistency until changed
             } else {
-                darkModeToggleBtn.textContent = '🌙';
+                // Default to light (no user preference, OS prefers light or no preference)
+                setTheme('light', true); // true to save this OS-derived preference
             }
-            localStorage.setItem('theme', newTheme);
+
+    darkModeToggleBtn.addEventListener('click', async () => {
+        let newTheme = body.classList.contains('dark-mode') ? 'light' : 'dark';
+        await setTheme(newTheme, true); // Explicit user choice, save it
+        currentThemeSetting = newTheme; // Update our tracker for the media query listener
+    });
+
+    // Listen for changes in OS/browser theme preference
+    prefersDarkScheme.addEventListener('change', async (e) => {
+        if (!localStorage.getItem('theme')) { // Only change if user hasn't manually set a theme
+            await setTheme(e.matches ? 'dark' : 'light', true);
+        }
         });
     </script>
     {% block scripts %}{% endblock scripts %}

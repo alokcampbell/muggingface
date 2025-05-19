@@ -55,6 +55,11 @@ header {
     width: 1.2em;
     height: 1.2em;
     fill: currentColor;
+    transition: filter 0.3s ease;
+    }
+    
+    body.dark-mode #darkModeToggle svg[src*="light-theme.svg"] {
+        filter: invert(1) brightness(2) grayscale(1) contrast(100);
 }
 
 #darkModeToggle:hover {
