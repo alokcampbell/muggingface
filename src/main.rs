@@ -27,6 +27,12 @@ use tera::{Context, Tera};
 use tracing::{error, info};
 use urlencoding;
 
+#[derive(serde::Serialize, sqlx::FromRow)]
+struct TopTorrent {
+    author: String,
+    repo_name: String,
+}
+
 fn get_seeding_dir() -> Result<PathBuf> {
     const SEEDING_DIR: &str = "seeding";
     let base_dirs =
@@ -89,7 +95,22 @@ fn render_finished_html_response(
 
 #[get("/")]
 async fn index(state: web::Data<Arc<AppState>>) -> impl Responder {
-    let context = Context::new();
+    let mut context = Context::new();
+
+    match sqlx::query_as::<_, TopTorrent>(
+        "SELECT author, repo_name FROM torrents ORDER BY updated_at DESC LIMIT 10"
+    )
+    .fetch_all(&state.db_pool)
+    .await
+    {
+        Ok(top_torrents) => {
+            context.insert("top_torrents", &top_torrents);
+        }
+        Err(e) => {
+            error!("Failed to fetch top torrents: {}", e);
+        }
+    }
+
     match state.tera.render("index.html", &context) {
         Ok(html_body) => HttpResponse::Ok().content_type("text/html").body(html_body),
         Err(e) => {
