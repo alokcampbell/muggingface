@@ -1,4 +1,4 @@
-use actix_files::{Files, NamedFile};
+use actix_files::Files;
 use actix_web::middleware::Logger;
 use actix_web::{
     get,
@@ -26,6 +26,12 @@ use sqlx::PgPool;
 use tera::{Context, Tera};
 use tracing::{error, info};
 use urlencoding;
+
+#[derive(serde::Serialize, sqlx::FromRow)]
+struct TopTorrent {
+    author: String,
+    repo_name: String,
+}
 
 fn get_seeding_dir() -> Result<PathBuf> {
     const SEEDING_DIR: &str = "seeding";
@@ -88,8 +94,30 @@ fn render_finished_html_response(
 }
 
 #[get("/")]
-async fn index() -> impl Responder {
-    NamedFile::open(PathBuf::from("static/index.html"))
+async fn index(state: web::Data<Arc<AppState>>) -> impl Responder {
+    let mut context = Context::new();
+
+    match sqlx::query_as::<_, TopTorrent>(
+        "SELECT author, repo_name FROM torrents ORDER BY updated_at DESC LIMIT 10"
+    )
+    .fetch_all(&state.db_pool)
+    .await
+    {
+        Ok(top_torrents) => {
+            context.insert("top_torrents", &top_torrents);
+        }
+        Err(e) => {
+            error!("Failed to fetch top torrents: {}", e);
+        }
+    }
+
+    match state.tera.render("index.html", &context) {
+        Ok(html_body) => HttpResponse::Ok().content_type("text/html").body(html_body),
+        Err(e) => {
+            error!("Failed to render index.html: {}", e);
+            HttpResponse::InternalServerError().body("Server error: Could not render homepage.")
+        }
+    }
 }
 
 #[get("/{user}/{repo}{tail:.*}")]
@@ -480,7 +508,6 @@ async fn repo_info(
             let repo_clone_for_spawn = repo.clone(); // Clone repo
 
             tokio::spawn(async move {
-                let api = Api::new().unwrap();
                 let client = reqwest::Client::builder()
                     .user_agent("muggingface/1.0")
                     .redirect(reqwest::redirect::Policy::limited(20))
@@ -751,6 +778,61 @@ struct Progress {
     total: u64,
 }
 
+#[derive(sqlx::FromRow)] // Helper struct for fetching torrent file and repo name
+struct TorrentDownloadInfo {
+    repo_name: String,
+    torrent_file: Vec<u8>,
+}
+
+#[get("/torrent/{sha}/download")]
+async fn download_torrent_by_sha(
+    path: web::Path<String>,
+    state: web::Data<Arc<AppState>>,
+) -> impl Responder {
+    let sha = path.into_inner();
+    info!("Attempting to download .torrent file for SHA: {}", sha);
+
+    match sqlx::query_as::<_, TorrentDownloadInfo>(
+        "SELECT repo_name, torrent_file FROM torrents WHERE sha = $1",
+    )
+    .bind(&sha)
+    .fetch_optional(&state.db_pool)
+    .await
+    {
+        Ok(Some(record)) => {
+            let filename = format!("{}.torrent", record.repo_name.replace("/", "-"));
+            info!("Serving torrent file {} for SHA: {}", filename, sha);
+            HttpResponse::Ok()
+                .content_type("application/x-bittorrent")
+                .insert_header((
+                    "Content-Disposition",
+                    format!("attachment; filename=\"{}\"", filename),
+                ))
+                .body(record.torrent_file)
+        }
+        Ok(None) => {
+            error!("Torrent file not found in DB for SHA: {}", sha);
+            HttpResponse::NotFound().body(format!("Torrent file for SHA {} not found.", sha))
+        }
+        Err(e) => {
+            error!("Database error fetching torrent file for SHA {}: {}", sha, e);
+            HttpResponse::InternalServerError().body("Error retrieving torrent file.")
+        }
+    }
+}
+
+#[get("/about")]
+async fn about_page(state: web::Data<Arc<AppState>>) -> impl Responder {
+    let context = Context::new();
+    match state.tera.render("about.html", &context) {
+        Ok(html_body) => HttpResponse::Ok().content_type("text/html").body(html_body),
+        Err(e) => {
+            error!("Failed to render about.html: {}", e);
+            HttpResponse::InternalServerError().body("Server error: Could not render About page.")
+        }
+    }
+}
+
 struct AppState {
     hf_api: Api,
     download_progress: Mutex<HashMap<String, u64>>,
@@ -812,6 +894,8 @@ async fn main(
                 .service(Files::new("/static", "static/").index_file("index.html"))
                 .service(progress_json)
                 .service(repo_info)
+                .service(download_torrent_by_sha)
+                .service(about_page)
                 .app_data(web::Data::new(app_state.clone()))
                 .app_data(web::Data::new(secrets))
                 .wrap(Logger::default()),

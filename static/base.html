@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}muggingface.co{% endblock title %}</title>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="/static/css/shared.css">
+    {% block head_extra %}{% endblock head_extra %}
+</head>
+
+<body>
+    <header>
+        <div class="header-content-wrapper">
+            <a href="/" id="header-logo-container">
+                <img src="/static/muggingface.png" alt="Mugging Face Home" id="header-logo-image">
+            </a>
+            <span class="site-title" id="header-site-title">{% block page_title %}{% endblock page_title %}</span>
+            <button id="darkModeToggle" aria-label="Toggle dark mode">
+                <!-- SVG will be inserted here by script -->
+            </button>
+        </div>
+    </header>
+
+    <div class="content-wrapper">
+        <main>
+            {% block content %}
+            {% endblock content %}
+        </main>
+        <footer>
+            made by
+            <a href="https://github.com/alokcampbell" target="_blank" rel="noopener">big gerbil</a>
+            and
+            <a href="https://github.com/djmango" target="_blank" rel="noopener">little gerbil</a>
+            | <a href="/about">About / Terms</a>
+        </footer>
+    </div>
+
+    <script>
+        const darkModeToggleBtn = document.getElementById('darkModeToggle');
+        const body = document.body;
+                let currentThemeSetting = localStorage.getItem('theme');
+
+                const sunIconPath = '/static/svg/dark-theme.svg';
+                const moonIconPath = '/static/svg/light-theme.svg';
+
+                async function loadSvg(filePath) {
+                    try {
+                        const response = await fetch(filePath);
+                        if (!response.ok) {
+                            throw new Error(`SVG not found: ${response.status}`);
+                        }
+                        return await response.text();
+                    } catch (error) {
+                        console.error('Error loading SVG:', error);
+                        return '<span style="font-size: 0.8em;">?</span>';
+                    }
+                }
+
+                async function setTheme(theme, saveToLocalStorage = true) {
+                    let iconSvg;
+                    if (theme === 'dark') {
+                        body.classList.add('dark-mode');
+                    iconSvg = await loadSvg(moonIconPath);
+                } else {
+                    body.classList.remove('dark-mode');
+                    iconSvg = await loadSvg(sunIconPath);
+                }
+                darkModeToggleBtn.innerHTML = iconSvg;
+                if (saveToLocalStorage) {
+                    localStorage.setItem('theme', theme);
+                }
+        }
+
+                // Determine initial theme
+                const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+
+                if (currentThemeSetting) {
+                    // User has an explicit preference saved
+                    setTheme(currentThemeSetting, false); // false because it's already saved
+                } else if (prefersDarkScheme.matches) {
+                    // No user preference, but OS prefers dark
+                    setTheme('dark', true); // true to save this OS-derived preference for consistency until changed
+            } else {
+                // Default to light (no user preference, OS prefers light or no preference)
+                setTheme('light', true); // true to save this OS-derived preference
+            }
+
+    darkModeToggleBtn.addEventListener('click', async () => {
+        let newTheme = body.classList.contains('dark-mode') ? 'light' : 'dark';
+        await setTheme(newTheme, true); // Explicit user choice, save it
+        currentThemeSetting = newTheme; // Update our tracker for the media query listener
+    });
+
+    // Listen for changes in OS/browser theme preference
+    prefersDarkScheme.addEventListener('change', async (e) => {
+        if (!localStorage.getItem('theme')) { // Only change if user hasn't manually set a theme
+            await setTheme(e.matches ? 'dark' : 'light', true);
+        }
+        });
+    </script>
+    {% block scripts %}{% endblock scripts %}
+</body>
+
+</html>

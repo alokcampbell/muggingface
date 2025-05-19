@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT magnet_link, torrent_file FROM torrents WHERE sha = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "magnet_link",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "torrent_file",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "40208d50c902d386d282c683792713f0e033a69da5b28ccdc7ef323c31f534ea"
+}

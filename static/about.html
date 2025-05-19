@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}About - muggingface.co{% endblock title %}
+
+{% block page_title %}About Us{% endblock page_title %}
+
+{% block head_extra %}
+<style>
+    .about-container {
+        max-width: 800px;
+        margin: 2rem auto;
+        padding: 2rem;
+        line-height: 1.7;
+    }
+
+    .about-container h1 {
+        text-align: center;
+        margin-bottom: 1.5rem;
+    }
+
+    .about-container p {
+        margin-bottom: 1rem;
+    }
+
+    body.dark-mode .about-container {
+        /* No specific dark mode styles needed if inheriting from base */
+    }
+</style>
+{% endblock head_extra %}
+
+{% block content %}
+<div class="about-container">
+    <h1>About muggingface.co</h1>
+
+    <h2>Disclaimer & Terms of Service</h2>
+    <p>
+        Welcome to muggingface.co. By using this service, you agree to the following terms and conditions.
+    </p>
+    <p>
+        All content accessible through muggingface.co, including but not limited to machine learning models, datasets,
+        and associated files, is provided "as-is" without any changes, warranties, or guarantees of any kind, express or
+        implied. The content is not owned, hosted, or endorsed by muggingface.co. We merely provide a technical service
+        to facilitate access to content hosted on third-party platforms (e.g., Hugging Face) via the BitTorrent
+        protocol.
+    </p>
+    <p>
+        Muggingface.co is not liable for any issues, damages, or losses that may arise from your use of this service or
+        the content accessed through it. This includes, but is not limited to, issues related to content accuracy,
+        legality, security, or fitness for a particular purpose. You assume all risks associated with downloading,
+        using, or sharing content obtained via this service.
+    </p>
+    <p>
+        You are solely responsible for ensuring that you have the necessary rights and permissions to access, download,
+        use, and share any content obtained through muggingface.co. It is your responsibility to comply with all
+        applicable laws, licensing terms, and intellectual property rights related to the content.
+    </p>
+
+    <h2>Fair Use Policy</h2>
+    <p>
+        This service is provided for the community. Please use it responsibly. Excessive use, attempts to disrupt the
+        service, or any use deemed malicious may result in a temporary or permanent ban from accessing muggingface.co.
+    </p>
+    <p>
+        We reserve the right to modify these terms or suspend the service at any time without prior notice.
+    </p>
+
+    <h2>Contact</h2>
+    <p>
+        Muggingface.co is a project by "big gerbil" and "little gerbil".
+    </p>
+
+</div>
+{% endblock content %}

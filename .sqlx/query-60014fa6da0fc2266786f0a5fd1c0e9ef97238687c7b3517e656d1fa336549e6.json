@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE torrents SET page_hits = page_hits + 1 WHERE sha = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "60014fa6da0fc2266786f0a5fd1c0e9ef97238687c7b3517e656d1fa336549e6"
+}

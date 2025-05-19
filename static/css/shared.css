@@ -1,0 +1,148 @@
+* {
+    box-sizing: border-box;
+}
+
+body,
+html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: #f9f9f9;
+    color: #333;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+    transition: background-color 0.3s, color 0.3s;
+    line-height: 1.5;
+}
+
+header {
+    background-color: #e9ecef;
+    border-bottom: 1px solid #dee2e6;
+    width: 100%;
+}
+
+.header-content-wrapper {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    padding: 0.45rem 1rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.site-title {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #343a40;
+}
+
+#darkModeToggle {
+    background: none;
+    border: 1px solid #ccc;
+    border-radius: 20px;
+    padding: 0.5rem 0.8rem;
+    cursor: pointer;
+    line-height: 1;
+    transition: background-color 0.3s, border-color 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#darkModeToggle svg {
+    width: 1.2em;
+    height: 1.2em;
+    fill: currentColor;
+    transition: filter 0.3s ease;
+    }
+    
+    body.dark-mode #darkModeToggle svg[src*="light-theme.svg"] {
+        filter: invert(1) brightness(2) grayscale(1) contrast(100);
+}
+
+#darkModeToggle:hover {
+    border-color: #888;
+}
+
+body.dark-mode {
+    background-color: #1a1a1a;
+    color: #dcdcdc;
+}
+
+body.dark-mode header {
+    background-color: #2c2c2c;
+    border-bottom: 1px solid #444;
+}
+
+body.dark-mode .site-title {
+    color: #f8f9fa;
+}
+
+body.dark-mode #darkModeToggle {
+    border-color: #555;
+}
+
+body.dark-mode #darkModeToggle:hover {
+    border-color: #777;
+}
+
+body.dark-mode a {
+    color: #8ab4f8;
+}
+
+body.dark-mode a:hover {
+    color: #adcffc;
+}
+
+.content-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+}
+
+main {
+    flex: 1;
+}
+
+footer {
+    width: 100%;
+    background: #f1f1f1;
+    padding: 1rem;
+    font-size: 0.9rem;
+    text-align: center;
+    border-top: 1px solid #ddd;
+    margin-top: auto;
+}
+
+body.dark-mode footer {
+    background-color: #252525;
+    border-top: 1px solid #444;
+    color: #aaa;
+}
+
+/* Header Logo and Title Styles */
+#header-logo-image {
+    height: 35px;
+    display: block;
+}
+
+#header-site-title {
+    flex-grow: 1;
+    text-align: center;
+    margin: 0 1rem;
+}
+
+code {
+    font-family: inherit;
+    font-size: inherit;
+    background-color: rgba(0, 0, 0, 0.05);
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+}
+
+body.dark-mode code {
+    background-color: rgba(255, 255, 255, 0.1);
+}

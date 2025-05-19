@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO torrents (sha, author, repo_name, magnet_link, torrent_file, page_hits) VALUES ($1, $2, $3, $4, $5, 1)\n                                 ON CONFLICT(sha) DO UPDATE SET magnet_link = excluded.magnet_link, torrent_file = excluded.torrent_file, page_hits = torrents.page_hits + 1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "54900c2f7004024add9a5a6015fd745ca5b4d31182e353f264ceeb4d6b45149e"
+}
