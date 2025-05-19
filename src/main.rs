@@ -6,18 +6,14 @@ use actix_web::{
     Error as ActixError, HttpResponse, Responder,
 };
 use shuttle_actix_web::ShuttleActixWeb;
-
-// file system + io
 use directories::BaseDirs;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, PoisonError},
 };
-use tokio::fs::{self, File};
+use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-
-// misc
 use anyhow::Result;
 use bendy::{decoding::FromBencode, encoding::ToBencode, value::Value};
 use hex;
@@ -26,6 +22,7 @@ use librqbit;
 use reqwest;
 use sha1::{Digest, Sha1};
 use shuttle_runtime::{SecretStore, Secrets};
+use sqlx::PgPool;
 use tera::{Context, Tera};
 use tracing::{error, info};
 use urlencoding;
@@ -59,7 +56,9 @@ fn ensure_server_directories() -> Result<bool> {
 fn ensure_directory_exists(dir_path: &Path) -> Result<()> {
     if !dir_path.exists() {
         info!("Creating directory: {}", dir_path.display());
-        std::fs::create_dir_all(dir_path).map_err(|e| anyhow::anyhow!("Failed to create directory {}: {}", dir_path.display(), e))?;
+        std::fs::create_dir_all(dir_path).map_err(|e| {
+            anyhow::anyhow!("Failed to create directory {}: {}", dir_path.display(), e)
+        })?;
     }
     Ok(())
 }
@@ -102,8 +101,63 @@ async fn repo_info(
     let full_repo = format!("{}/{}", user, repo);
     info!("Requesting repo info for {}", full_repo);
     let hf_repo_info = state.hf_api.model(full_repo.clone());
+
     match hf_repo_info.info() {
         Ok(info) => {
+            // Attempt to retrieve torrent info from the database first
+            match sqlx::query!(
+                "SELECT magnet_link, torrent_file FROM torrents WHERE sha = $1",
+                info.sha
+            )
+            .fetch_optional(&state.db_pool)
+            .await
+            {
+                Ok(Some(record)) => {
+                    info!(
+                        "Found torrent for SHA {} in database. Incrementing page hits.",
+                        info.sha
+                    );
+                    // Increment page hits
+                    if let Err(e) = sqlx::query!(
+                        "UPDATE torrents SET page_hits = page_hits + 1 WHERE sha = $1",
+                        info.sha
+                    )
+                    .execute(&state.db_pool)
+                    .await
+                    {
+                        error!("Failed to increment page_hits for SHA {}: {}", info.sha, e);
+                    }
+
+                    let file_names: Vec<String> =
+                        info.siblings.iter().map(|f| f.rfilename.clone()).collect();
+                    // We might not need to serve the torrent_file directly if we have the magnet link,
+                    // but it's good that it's stored.
+                    // For now, directly render finished page with DB magnet link.
+                    return HttpResponse::Ok().content_type("text/html").body(
+                        render_finished_html_response(
+                            &full_repo,
+                            &info.sha,
+                            &file_names,
+                            &record.magnet_link,
+                            &state.tera,
+                        ),
+                    );
+                }
+                Ok(None) => {
+                    info!(
+                        "No torrent found in database for SHA {}, proceeding with generation.",
+                        info.sha
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "Database error when checking for torrent with SHA {}: {}",
+                        info.sha, e
+                    );
+                    // Proceed as if not found, but log the error
+                }
+            }
+
             let seeding_dir = match get_seeding_dir() {
                 Ok(dir) => dir,
                 Err(e) => {
@@ -263,11 +317,31 @@ async fn repo_info(
                                     urlencoding::encode(&display_name)
                                 );
 
-                                {
-                                    let mut magnet_links_guard = state.magnet_links.lock().unwrap();
-                                    magnet_links_guard
-                                        .insert(full_repo.clone(), magnet_link_str.clone());
-                                }
+                                // Store in DB
+                                let torrent_bytes_clone_for_db = torrent_bytes.clone();
+                                let user_clone_for_db = user.clone();
+                                let repo_clone_for_db = repo.clone();
+                                let magnet_link_clone_for_db = magnet_link_str.clone();
+                                let sha_clone_for_db = info.sha.clone();
+                                let db_pool_clone = state.db_pool.clone();
+
+                                tokio::spawn(async move {
+                                    if let Err(e) = sqlx::query!(
+                                        "INSERT INTO torrents (sha, author, repo_name, magnet_link, torrent_file, page_hits) VALUES ($1, $2, $3, $4, $5, 1)
+                                         ON CONFLICT(sha) DO UPDATE SET magnet_link = excluded.magnet_link, torrent_file = excluded.torrent_file, page_hits = torrents.page_hits + 1",
+                                        sha_clone_for_db,
+                                        user_clone_for_db,
+                                        repo_clone_for_db,
+                                        magnet_link_clone_for_db,
+                                        torrent_bytes_clone_for_db.as_ref()
+                                    )
+                                    .execute(&db_pool_clone)
+                                    .await {
+                                        error!("Failed to insert/update torrent in DB for SHA {}: {}", sha_clone_for_db, e);
+                                    } else {
+                                        info!("Successfully stored/updated torrent in DB for SHA {}", sha_clone_for_db);
+                                    }
+                                });
 
                                 return HttpResponse::Ok().content_type("text/html").body(
                                     render_finished_html_response(
@@ -345,12 +419,31 @@ async fn repo_info(
                             urlencoding::encode(&display_name)
                         );
 
-                        // store it in the shared state
-                        {
-                            let mut magnet_links_guard = state.magnet_links.lock().unwrap();
-                            magnet_links_guard.insert(full_repo.clone(), magnet_link_str.clone());
-                            info!("Magnet link for {} (from local torrent) stored.", full_repo);
-                        }
+                        // Store in DB
+                        let torrent_bytes_clone_for_db = torrent_bytes.clone();
+                        let user_clone_for_db = user.clone();
+                        let repo_clone_for_db = repo.clone();
+                        let magnet_link_clone_for_db = magnet_link_str.clone();
+                        let sha_clone_for_db = info.sha.clone();
+                        let db_pool_clone = state.db_pool.clone();
+
+                        tokio::spawn(async move {
+                            if let Err(e) = sqlx::query!(
+                                "INSERT INTO torrents (sha, author, repo_name, magnet_link, torrent_file, page_hits) VALUES ($1, $2, $3, $4, $5, 1)
+                                 ON CONFLICT(sha) DO UPDATE SET magnet_link = excluded.magnet_link, torrent_file = excluded.torrent_file, page_hits = torrents.page_hits + 1",
+                                sha_clone_for_db,
+                                user_clone_for_db,
+                                repo_clone_for_db,
+                                magnet_link_clone_for_db,
+                                torrent_bytes_clone_for_db
+                            )
+                            .execute(&db_pool_clone)
+                            .await {
+                                error!("Failed to insert/update torrent in DB (from local .torrent) for SHA {}: {}", sha_clone_for_db, e);
+                            } else {
+                                info!("Successfully stored/updated torrent in DB (from local .torrent) for SHA {}", sha_clone_for_db);
+                            }
+                        });
 
                         return HttpResponse::Ok().content_type("text/html").body(
                             render_finished_html_response(
@@ -383,6 +476,8 @@ async fn repo_info(
             let full_repo_clone = full_repo.clone();
             let state_clone = state.clone();
             let seeding_dir_clone = seeding_dir.clone();
+            let user_clone_for_spawn = user.clone(); // Clone user
+            let repo_clone_for_spawn = repo.clone(); // Clone repo
 
             tokio::spawn(async move {
                 let api = Api::new().unwrap();
@@ -572,11 +667,30 @@ async fn repo_info(
                     urlencoding::encode(&display_name)
                 );
 
-                {
-                    let mut magnet_links_guard = state_clone.magnet_links.lock().unwrap();
-                    magnet_links_guard.insert(full_repo_clone.clone(), magnet_link_str);
-                    info!("Magnet link for {} stored.", full_repo_clone);
-                }
+                // Store in DB
+                let db_pool_clone_spawn = state_clone.db_pool.clone();
+                let sha_clone_for_db_spawn = info_clone.sha.clone();
+                // user_clone_for_spawn and repo_clone_for_spawn are already available
+                let magnet_link_clone_for_db_spawn = magnet_link_str.clone();
+                // torrent_bytes_clone is already available from the previous step
+
+                tokio::spawn(async move {
+                    if let Err(e) = sqlx::query!(
+                        "INSERT INTO torrents (sha, author, repo_name, magnet_link, torrent_file, page_hits) VALUES ($1, $2, $3, $4, $5, 1)
+                         ON CONFLICT(sha) DO UPDATE SET magnet_link = excluded.magnet_link, torrent_file = excluded.torrent_file, page_hits = torrents.page_hits + 1",
+                        sha_clone_for_db_spawn,
+                        user_clone_for_spawn, // Use cloned user
+                        repo_clone_for_spawn, // Use cloned repo
+                        magnet_link_clone_for_db_spawn,
+                        torrent_bytes_clone.as_ref() // Use torrent_bytes_clone.as_ref() directly
+                    )
+                    .execute(&db_pool_clone_spawn)
+                    .await {
+                        error!("Failed to insert/update torrent in DB (from download task) for SHA {}: {}", sha_clone_for_db_spawn, e);
+                    } else {
+                        info!("Successfully stored/updated torrent in DB (from download task) for SHA {}", sha_clone_for_db_spawn);
+                    }
+                });
             });
             return HttpResponse::Ok().content_type("text/html").body(
                 render_loading_html_response(
@@ -637,13 +751,12 @@ struct Progress {
     total: u64,
 }
 
-// #[derive(Clone)]
 struct AppState {
     hf_api: Api,
-    magnet_links: Mutex<HashMap<String, String>>,
     download_progress: Mutex<HashMap<String, u64>>,
     total_sizes: Mutex<HashMap<String, u64>>,
     tera: Tera,
+    db_pool: PgPool,
 }
 
 #[shuttle_runtime::main]
@@ -656,13 +769,41 @@ async fn main(
         // Continue anyway, as we'll try to create directories as needed
     }
 
+    // Get database URL from secrets
+    let database_url = secrets
+        .get("DATABASE_URL")
+        .ok_or_else(|| anyhow::anyhow!("DATABASE_URL must be set in Secrets.toml"))
+        .expect("DATABASE_URL not found in secrets");
+
+    // Create a connection pool
+    let db_pool = match PgPool::connect(&database_url).await {
+        Ok(pool) => {
+            info!("Successfully connected to the database");
+            pool
+        }
+        Err(e) => {
+            error!("Failed to connect to the database: {}", e);
+            panic!("Database connection failed: {}", e); // Or handle more gracefully
+        }
+    };
+
+    // Run database migrations
+    match sqlx::migrate!("./migrations").run(&db_pool).await {
+        Ok(_) => info!("Database migrations ran successfully"),
+        Err(e) => {
+            error!("Failed to run database migrations: {}", e);
+            // Depending on the error, you might want to panic or handle it gracefully
+            // For now, we log and continue, but this might not be ideal for all migration errors
+        }
+    }
+
     let tera = Tera::new("static/**/*.html").expect("Failed to parse templates");
     let app_state = Arc::new(AppState {
         hf_api: Api::new().unwrap(),
-        magnet_links: Mutex::new(HashMap::new()),
         download_progress: Mutex::new(HashMap::new()),
         total_sizes: Mutex::new(HashMap::new()),
         tera,
+        db_pool,
     });
     let config = move |cfg: &mut ServiceConfig| {
         cfg.service(
