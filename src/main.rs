@@ -5,6 +5,15 @@ use actix_web::{
     web::{self, Json, ServiceConfig},
     Error as ActixError, HttpResponse, Responder,
 };
+use shuttle_actix_web::ShuttleActixWeb;
+use directories::BaseDirs;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, PoisonError},
+};
+use tokio::fs::{self, File};
+use tokio::io::AsyncWriteExt;
 use anyhow::Result;
 use bendy::{decoding::FromBencode, encoding::ToBencode, value::Value};
 use directories::BaseDirs;
@@ -207,7 +216,8 @@ async fn repo_info(
 
             if total_size >= MAX_REPO_SIZE_BYTES {
                 info!(
-                    "Repository {} (Size: {} bytes) exceeds the {} byte limit. Rendering donate.html.",
+                  // Define the 60GB limit
+              "Repository {} (Size: {} bytes) exceeds the {} byte limit. Rendering donate.html.",
                     full_repo,
                     total_size,
                     MAX_REPO_SIZE_BYTES
@@ -479,7 +489,14 @@ async fn repo_info(
 
             tokio::spawn(async move {
                 let api = Api::new().unwrap();
-                let model = api.model(full_repo_clone.clone());
+                let client = reqwest::Client::builder()
+                    .user_agent("muggingface/1.0")
+                    .redirect(reqwest::redirect::Policy::limited(20))
+                    .build()
+                    .unwrap_or_else(|e| {
+                        error!("Failed to build reqwest client: {}", e);
+                        panic!("Failed to build reqwest client: {}", e);
+                    });
 
                 for file_info in &info_clone.siblings {
                     let file_path = target_dir_clone.join(&file_info.rfilename);
@@ -494,45 +511,77 @@ async fn repo_info(
                         }
                     }
 
-                    match model.get(&file_info.rfilename) {
-                        Ok(cache_path) => {
-                            if let Err(e) = std::fs::copy(&cache_path, &file_path) {
-                                error!("Failed to copy file from cache to target: {}", e);
-                                continue;
-                            }
+                    let download_url = format!(
+                        "https://huggingface.co/{}/resolve/main/{}",
+                        full_repo_clone, file_info.rfilename
+                    );
+                    
+                    // state_clone.hf_api.authorization_header(); // ERROR: No such method - Commented out
+                    // let auth_header_val = state_clone.hf_api.authorization_header(); 
 
-                            let file_len = match fs::metadata(&file_path).await {
-                                Ok(metadata) => metadata.len(),
-                                Err(e) => {
-                                    error!(
-                                        "Failed to get metadata for file {}: {}",
-                                        file_path.display(),
-                                        e
-                                    );
-                                    0
-                                }
-                            };
+                    let request_builder = client.get(&download_url);
+                    // if let Some(auth_val) = &auth_header_val { // Commented out as auth_header_val is commented out
+                    //     request_builder = request_builder.header(reqwest::header::AUTHORIZATION, auth_val);
+                    // }
+                    
+                    info!("Starting download for {} from URL: {}", file_info.rfilename, download_url);
 
-                            {
-                                let mut progress = match state_clone.download_progress.lock() {
-                                    Ok(guard) => guard,
-                                    Err(_) => {
-                                        error!("Mutex was poisoned for download_progress, skipping progress update");
-                                        return;
+                    match request_builder.send().await {
+                        Ok(mut response) => {
+                            if response.status().is_success() {
+                                match File::create(&file_path).await {
+                                    Ok(mut dest_file) => {
+                                        let mut file_downloaded_successfully = true;
+                                        // Corrected loop structure for handling reqwest stream
+                                        loop {
+                                            match response.chunk().await { // This returns Result<Option<Bytes>>
+                                                Ok(Some(chunk)) => { // chunk is reqwest::Bytes here
+                                                    if let Err(e) = dest_file.write_all(&chunk).await { // &chunk is fine, Bytes AsRef [u8]
+                                                        error!("Failed to write chunk to {}: {}", file_path.display(), e);
+                                                        file_downloaded_successfully = false;
+                                                        break; 
+                                                    }
+                                                    let chunk_len = chunk.len() as u64;
+                                                    {
+                                                        let mut progress_map = state_clone.download_progress.lock().unwrap_or_else(|poisoned| {
+                                                            error!("download_progress mutex poisoned: {}", poisoned);
+                                                            poisoned.into_inner()
+                                                        });
+                                                        *progress_map.entry(full_repo_clone.clone()).or_default() += chunk_len;
+                                                        info!("Repo {}: downloaded {} bytes for file {}, total {} for repo", 
+                                                              full_repo_clone, chunk_len, file_info.rfilename, 
+                                                              progress_map.get(&full_repo_clone).unwrap_or(&0));
+                                                    }
+                                                }
+                                                Ok(None) => { // End of stream signifies success for this file
+                                                    info!("Finished streaming file successfully: {}", file_info.rfilename);
+                                                    break; // Exit the loop for this file
+                                                }
+                                                Err(e) => { // An error occurred while streaming chunks
+                                                    error!("Error while streaming chunk for {}: {}", file_info.rfilename, e);
+                                                    file_downloaded_successfully = false;
+                                                    break; // Exit the loop for this file
+                                                }
+                                            }
+                                        }
+                                        // After the loop, check file_downloaded_successfully
+                                        if file_downloaded_successfully {
+                                            info!("Successfully downloaded and wrote file: {}", file_path.display());
+                                        } else {
+                                            error!("Failed to complete download for file: {}. It might be partial.", file_path.display());
+                                        }
                                     }
-                                };
-                                if let Some(downloaded) = progress.get_mut(&full_repo_clone) {
-                                    *downloaded += file_len;
-                                    info!(
-                                        "Updated progress for {}: {} bytes",
-                                        full_repo_clone, *downloaded
-                                    );
+                                    Err(e) => {
+                                        error!("Failed to create file {}: {}", file_path.display(), e);
+                                    }
                                 }
+                            } else {
+                                error!("Download request for {} failed with status: {}. Body: {:?}", 
+                                       download_url, response.status(), response.text().await.unwrap_or_else(|_| String::from("[could not read body]")));
                             }
                         }
                         Err(e) => {
-                            error!("Failed to download file {}: {}", file_info.rfilename, e);
-                            continue;
+                            error!("Failed to send download request for {}: {}", download_url, e);
                         }
                     }
                 }
