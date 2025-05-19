@@ -5,8 +5,31 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ full_repo }}</title>
-    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
     <style>
+        * { box-sizing: border-box; }
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f9f9f9;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+        .content-wrapper { flex: 1; display: flex; flex-direction: column; }
+        main { flex: 1; }
+        footer {
+            width: 100%;
+            background: #eee;
+            padding: 1rem;
+            font-size: 0.9rem;
+            text-align: center;
+            border-top: 1px solid #ccc;
+            margin-top: auto;
+        }
         #p-container {
             width: 100%;
             background-color: #000;
@@ -25,47 +48,43 @@
             transition: width 0.4s ease;
         }
 
-        #completion-message {
-            display: none;
-            margin-top: 20px;
-        }
-
         #status-message {
             margin: 10px 0;
             font-weight: bold;
             color: #666;
         }
+        .loading-container {
+            padding: 2rem;
+            text-align: center;
+        }
     </style>
 </head>
 
 <body>
-    <div id="loading-content">
-        <h1>{{ full_repo }}</h1>
-        <h2>SHA: {{ sha }}</h2>
-        <div id="status-message">Starting download...</div>
-        <div id="p-container">
-            <div id="p-bar">0%</div>
-        </div>
-    </div>
-
-    <div id="completion-message">
-        <h1>{{ full_repo }}</h1>
-        <h2>SHA: {{ sha }}</h2>
-        <h2>Files:</h2>
-        <ul id="file-list"></ul>
-        <div>
-            <h3>muggingface.co</h3>
-            <h3><a id="magnet-link" href="#">MAGNET LINK</a></h3>
-            <img src="/static/muggingface_large.png" alt="muggingface.co" style="max-width: 10%; height: auto;">
-        </div>
+    <div class="content-wrapper">
+        <main>
+            <div class="loading-container">
+                <div id="loading-content">
+                    <h1>{{ full_repo }}</h1>
+                    <h2>SHA: {{ sha }}</h2>
+                    <div id="status-message">Starting download...</div>
+                    <div id="p-container">
+                        <div id="p-bar">0%</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+        <footer>
+            &copy; made by
+            <a href="https://github.com/alokcampbell" target="_blank" rel="noopener">big gerbil</a>
+            and
+            <a href="https://github.com/djmango" target="_blank" rel="noopener">little gerbil</a>
+        </footer>
     </div>
 
     <script>
         const bar = document.getElementById("p-bar");
         const loadingContent = document.getElementById("loading-content");
-        const completionMessage = document.getElementById("completion-message");
-        const fileList = document.getElementById("file-list");
-        const magnetLink = document.getElementById("magnet-link");
         const statusMessage = document.getElementById("status-message");
         let lastProgress = 0;
 

@@ -5,10 +5,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>muggingface.co</title>
-  <link rel="icon" href="favicon.ico" type="image/x-icon" />
+  <link rel="icon" href="/static/favicon.ico" type="image/x-icon" />
   <style>
-
-      /* tags and ids */
     * {
       box-sizing: border-box;
     }
@@ -23,6 +21,7 @@
       color: #333;
       display: flex;
       flex-direction: column;
+      overflow-x: hidden; /* Prevent horizontal scrollbar */
     }
 
     p {
@@ -46,6 +45,16 @@
       margin-bottom: 2rem;
     }
 
+    .content-wrapper { /* Added to help push footer down */
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    main { /* Added to wrap main content */
+        flex: 1;
+    }
+
     footer {
       width: 100%;
       background: #eee;
@@ -53,9 +62,8 @@
       font-size: 0.9rem;
       text-align: center;
       border-top: 1px solid #ccc;
+      margin-top: auto; /* Pushes footer to the bottom */
     }
-
-          /* classes and styles */
 
     .gerbiltime {
       position: fixed;
@@ -72,15 +80,14 @@
     }
 
     .container {
-      flex: 1;
+      /* flex: 1; Removed as main content wrapper will handle this */
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       padding: 2rem;
       text-align: center;
-      }
-
+    }
 
     .welcome {
       font-size: 3rem;
@@ -130,52 +137,48 @@
 </head>
 
 <body>
+  <div class="content-wrapper"> <!-- Added wrapper -->
+    <main> <!-- Added main element -->
+      <!-- terms of service thing thing thing -->
+      <div class="gerbiltime" id="modal">
+        <div class="gerbilcontent">
+          <h2>Welcome to muggingface.co</h2>
+          <p>
+            By clicking "Continue" you agree to our Terms of Service and Fair Use Policy. 
+            All content is provided "as‑is" with no changes, warranty, etc. The content is not owned by us, we are not liable for any issues.
+            You also consent to using the service at your own risk.
+          </p>
+          <label>
+            <input type="checkbox" id="agreeCheckbox" />
+            I agree to the terms of service and fair use policy.
+          </label>
+          <button id="continueBtn" disabled>Continue</button>
+        </div>
+      </div>
+      
+      <!-- main site thing thing thing -->
+      <div class="container">
+        <div class="welcome">muggingface.co</div>
+        <p>Simply follow our three step program:</p>
+        <ol>
+          <li>Go to a model on huggingface.co</li>
+          <li>Swap the URL from huggingface.co to muggingface.co</li>
+          <li>???</li>
+          <li>Profit</li>
+        </ol>
+        <img src="/static/muggingface_large.png" alt="muggingface.co" />
+      </div>
+    </main> <!-- Closed main element -->
 
-  <!-- terms of service thing thing thing -->
-
-  <div class="gerbiltime" id="modal">
-    <div class="gerbilcontent">
-      <h2>Welcome to muggingface.co</h2>
-      <p>
-        By clicking “Continue” you agree to our Terms of Service and Fair Use Policy. 
-        All content is provided “as‑is” with no changes, warranty, etc. The content is not owned by us, we are not liable for any issues.
-        You also consent to using the service at your own risk.
-      </p>
-      <label>
-        <input type="checkbox" id="agreeCheckbox" />
-        I agree to the terms of service and fair use policy.
-      </label>
-      <button id="continueBtn" disabled>Continue</button>
-    </div>
-  </div>
-  
-
-  <!-- main site thing thing thing -->
-
-
-  <div class="container">
-    <div class="welcome">muggingface.co</div>
-    <p>Simply follow our three step program:</p>
-    <ol>
-      <li>Go to a model on huggingface.co</li>
-      <li>Swap the URL from huggingface.co to muggingface.co</li>
-      <li>???</li>
-      <li>Profit</li>
-    </ol>
-    <img src="/static/muggingface_large.png" alt="muggingface.co" />
-  </div>
-
-  <!-- footer thing thing thing -->
-
-  <footer>
-    &copy; made by
-    <a href="https://github.com/alokcampbell" target="_blank" rel="noopener">big gerbil</a>
-    and
-    <a href="https://github.com/djmango" target="_blank" rel="noopener">little gerbil</a>
-  </footer>
+    <footer>
+        &copy; made by
+        <a href="https://github.com/alokcampbell" target="_blank" rel="noopener">big gerbil</a>
+        and
+        <a href="https://github.com/djmango" target="_blank" rel="noopener">little gerbil</a>
+    </footer>
+  </div> <!-- Closed content-wrapper -->
 
   <!-- button checker / button listener thing thing thing -->
-
   <script>
     const gerbilbox = document.getElementById('agreeCheckbox');
     const gerbilbutton = document.getElementById('continueBtn');
@@ -187,7 +190,7 @@
 
     gerbilbutton.addEventListener('click', () => {
       modal.style.display = 'none';
-      document.body.style.overflow = 'auto';
+      document.body.style.overflow = 'auto'; /* Ensure scrolling is re-enabled */
     });
   </script>
 </body>

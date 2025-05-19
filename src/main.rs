@@ -149,6 +149,29 @@ async fn repo_info(
                     info!("Failed to fetch size for: {}", file_info.rfilename);
                 }
             }
+            const MAX_REPO_SIZE_BYTES: u64 = 60 * 1024 * 1024 * 1024;
+
+            if total_size >= MAX_REPO_SIZE_BYTES {
+                info!(
+                    "Repository {} (Size: {} bytes) exceeds the {} byte limit. Rendering donate.html.",
+                    full_repo,
+                    total_size,
+                    MAX_REPO_SIZE_BYTES
+                );
+                let mut context = Context::new();
+                context.insert("full_repo", &full_repo);
+                match state.tera.render("donate.html", &context) {
+                    Ok(html_body) => {
+                        return HttpResponse::Ok().content_type("text/html").body(html_body);
+                    }
+                    Err(e) => {
+                        error!("Failed to render donate.html for {}: {}", full_repo, e);
+                        return HttpResponse::InternalServerError()
+                            .body("Server error: Could not render donation page.");
+                    }
+                }
+            }
+
             {
                 let mut progress = state.download_progress.lock().unwrap();
                 progress.insert(full_repo.clone(), 0);

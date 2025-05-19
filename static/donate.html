@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download Limit - muggingface.co</title>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <style>
+        * { box-sizing: border-box; }
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f9f9f9;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+        .content-wrapper { flex: 1; display: flex; flex-direction: column; }
+        main { flex: 1; }
+        footer {
+            width: 100%;
+            background: #eee;
+            padding: 1rem;
+            font-size: 0.9rem;
+            text-align: center;
+            border-top: 1px solid #ccc;
+            margin-top: auto;
+        }
+        .donate-container {
+            padding: 2rem;
+            text-align: center;
+            max-width: 800px;
+            margin: 2rem auto; 
+        }
+        .donate-container h1 {
+            margin-bottom: 1rem;
+            color: #000000; 
+            font-size: 1.8rem; 
+            white-space: nowrap; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+        }
+        .donate-container p {
+            font-size: 1.1rem;
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+        }
+        .donate-container .links {
+            margin-bottom: 1.5rem;
+        }
+        .donate-container .links a {
+            display: inline-block;
+            margin: 0 10px;
+            color: #007bff;
+            text-decoration: none;
+        }
+        .donate-container .links a:hover {
+            text-decoration: underline;
+        }
+        .donate-container img {
+            max-width: 150px;
+            height: auto;
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="content-wrapper">
+        <main>
+            <div class="donate-container">
+                <h1>Download Limit Reached for {{ full_repo }}</h1>
+                <p>
+                    The repository you are attempting to download, <strong>{{ full_repo }}</strong>, 
+                    is 60GB or larger.
+                </p>
+                <div class="links">
+                    <a href="#">Eth 0xf4cabfd7337c02b19c88de417f3ff49bc3e6659b</a>
+                    <a href="#">Bit bc1q9j0mu3esp5qhlyc6lgx0ppzgxvwppx7s6upxhn</a>
+                    <a href="#">Sol Gy8EAxsLGpkrxMkFzP8jbsJ5q7cxsnwZqv6Af3eRQVBz</a>
+                    <a href="#">Doge DEsnFh6ySvn9biAvymY9no4T1aqJme2csq</a>
+                </div>
+                <p>
+                    Muggingface.co is a community-supported service. If you find this service useful and wish to see 
+                    the download cap increased, or to help cover server and bandwidth costs, please consider donating.
+                </p>
+                <div>
+                    <img src="/static/muggingface_large.png" alt="muggingface.co">
+                </div>
+            </div>
+        </main>
+        <footer>
+            &copy; made by
+            <a href="https://github.com/alokcampbell" target="_blank" rel="noopener">big gerbil</a>
+            and
+            <a href="https://github.com/djmango" target="_blank" rel="noopener">little gerbil</a>
+        </footer>
+    </div>
+</body>
+
+</html>
