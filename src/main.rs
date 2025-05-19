@@ -778,6 +778,61 @@ struct Progress {
     total: u64,
 }
 
+#[derive(sqlx::FromRow)] // Helper struct for fetching torrent file and repo name
+struct TorrentDownloadInfo {
+    repo_name: String,
+    torrent_file: Vec<u8>,
+}
+
+#[get("/torrent/{sha}/download")]
+async fn download_torrent_by_sha(
+    path: web::Path<String>,
+    state: web::Data<Arc<AppState>>,
+) -> impl Responder {
+    let sha = path.into_inner();
+    info!("Attempting to download .torrent file for SHA: {}", sha);
+
+    match sqlx::query_as::<_, TorrentDownloadInfo>(
+        "SELECT repo_name, torrent_file FROM torrents WHERE sha = $1",
+    )
+    .bind(&sha)
+    .fetch_optional(&state.db_pool)
+    .await
+    {
+        Ok(Some(record)) => {
+            let filename = format!("{}.torrent", record.repo_name.replace("/", "-"));
+            info!("Serving torrent file {} for SHA: {}", filename, sha);
+            HttpResponse::Ok()
+                .content_type("application/x-bittorrent")
+                .insert_header((
+                    "Content-Disposition",
+                    format!("attachment; filename=\"{}\"", filename),
+                ))
+                .body(record.torrent_file)
+        }
+        Ok(None) => {
+            error!("Torrent file not found in DB for SHA: {}", sha);
+            HttpResponse::NotFound().body(format!("Torrent file for SHA {} not found.", sha))
+        }
+        Err(e) => {
+            error!("Database error fetching torrent file for SHA {}: {}", sha, e);
+            HttpResponse::InternalServerError().body("Error retrieving torrent file.")
+        }
+    }
+}
+
+#[get("/about")]
+async fn about_page(state: web::Data<Arc<AppState>>) -> impl Responder {
+    let context = Context::new();
+    match state.tera.render("about.html", &context) {
+        Ok(html_body) => HttpResponse::Ok().content_type("text/html").body(html_body),
+        Err(e) => {
+            error!("Failed to render about.html: {}", e);
+            HttpResponse::InternalServerError().body("Server error: Could not render About page.")
+        }
+    }
+}
+
 struct AppState {
     hf_api: Api,
     download_progress: Mutex<HashMap<String, u64>>,
@@ -839,6 +894,8 @@ async fn main(
                 .service(Files::new("/static", "static/").index_file("index.html"))
                 .service(progress_json)
                 .service(repo_info)
+                .service(download_torrent_by_sha)
+                .service(about_page)
                 .app_data(web::Data::new(app_state.clone()))
                 .app_data(web::Data::new(secrets))
                 .wrap(Logger::default()),

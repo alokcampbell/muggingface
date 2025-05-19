@@ -28,97 +28,6 @@
       filter: brightness(0.8) contrast(1.2);
   }
 
-  .gerbiltime {
-    position: fixed;
-    top: 0;
-    left: 0;
-    height: 100%;
-    width: 100%;
-    background-color: rgba(0, 0, 0, 0.8);
-    color: white;
-    z-index: 999;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem;
-    text-align: center;
-  }
-
-  .welcome {
-    font-size: 3rem;
-    font-weight: bold;
-    margin-bottom: 1rem;
-  }
-  body.dark-mode .welcome {
-    color: #e0e0e0;
-  }
-
-  .gerbilcontent {
-    background-color: #fff;
-    color: #333;
-    padding: 2rem;
-    border-radius: 10px;
-    text-align: left;
-    max-width: 400px;
-    width: 90%;
-    box-shadow: 0 0 20px rgba(0, 0, 0, 0.6);
-  }
-  body.dark-mode .gerbilcontent {
-    background-color: #3a3a3a;
-    color: #dcdcdc;
-    box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
-  }
-
-  .gerbilcontent h2 {
-    margin-top: 0;
-  }
-
-  .gerbilcontent label {
-    display: flex;
-    align-items: center;
-    margin-top: 1rem;
-  }
-
-  .gerbilcontent input[type="checkbox"] {
-    margin-right: 0.5rem;
-  }
-
-  .gerbilcontent button {
-    margin-top: 1rem;
-    padding: 0.5rem 1rem;
-    background-color: #4caf50;
-    color: white;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: background-color 0.3s;
-  }
-  .gerbilcontent button:hover {
-    background-color: #45a049;
-  }
-  body.dark-mode .gerbilcontent button {
-    background-color: #5cb85c;
-  }
-  body.dark-mode .gerbilcontent button:hover {
-    background-color: #4cae4c;
-  }
-
-  .gerbilcontent button:disabled {
-    background-color: #ccc;
-    cursor: not-allowed;
-  }
-  body.dark-mode .gerbilcontent button:disabled {
-    background-color: #555;
-    color: #888;
-  }
-
   .top-torrents-section {
     margin-top: 3rem;
     padding-top: 1.5rem;
@@ -142,30 +51,31 @@
   .top-torrents-section li {
     margin-bottom: 0.5rem;
   }
+
+  .container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    text-align: center;
+  }
+
+  .welcome {
+    font-size: 3rem;
+    font-weight: bold;
+    margin-bottom: 1rem;
+  }
+  body.dark-mode .welcome {
+    color: #e0e0e0;
+  }
 </style>
 {% endblock head_extra %}
 
 {% block page_title %}muggingface.co{% endblock page_title %}
 
 {% block content %}
-<div class="gerbiltime" id="modal">
-  <div class="gerbilcontent">
-    <h2>Welcome to muggingface.co</h2>
-    <p>
-      By clicking "Continue" you agree to our Terms of Service and Fair Use Policy.
-      All content is provided "as‑is" with no changes, warranty, etc. The content is not owned by us, we are not liable
-      for any issues.
-      You also consent to using the service at your own risk.
-      </p>
-      <label>
-        <input type="checkbox" id="agreeCheckbox" />
-      I agree to the terms and conditions.
-      </label>
-    <button id="continueButton" disabled>Continue</button>
-    </div>
-    </div>
-    
-    <div class="container">
+<div class="container">
   <h1 class="welcome">Welcome to muggingface.co</h1>
   <img src="/static/muggingface_large.png" alt="muggingface.co Logo" class="logo-image">
   <p>Turn any Hugging Face repo into a torrent.</p>
@@ -180,6 +90,7 @@
     <li>Download using the magnet link.</li>
   </ol>
 </div>
+
 {% if top_torrents %}
 <div class="top-torrents-section">
   <h2>Top Torrents</h2>
@@ -198,24 +109,6 @@
 
 {% block scripts %}
 <script>
-      const modal = document.getElementById("modal");
-      const agreeCheckbox = document.getElementById("agreeCheckbox");
-      const continueButton = document.getElementById("continueButton");
-
-      // Check if user has already agreed
-      if (localStorage.getItem("agreedToTerms") === "true") {
-        modal.style.display = "none";
-      }
-
-      agreeCheckbox.addEventListener("change", function () {
-        continueButton.disabled = !this.checked;
-      });
-
-      continueButton.addEventListener("click", function () {
-        if (agreeCheckbox.checked) {
-          localStorage.setItem("agreedToTerms", "true");
-          modal.style.display = "none";
-        }
-      });
+      // Modal-related JavaScript removed.
 </script>
 {% endblock scripts %}

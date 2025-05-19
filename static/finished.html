@@ -135,6 +135,19 @@
     body.dark-mode .finished-container img {
         filter: brightness(0.8) contrast(1.2); 
     }
+
+    .download-link-section a.torrent-file-link {
+        font-size: 0.9em;
+        color: #555; /* Subtler color for the .torrent file link */
+        text-decoration: none;
+        font-weight: normal;
+    }
+    body.dark-mode .download-link-section a.torrent-file-link {
+        color: #bbb;
+    }
+    .download-link-section a.torrent-file-link:hover {
+        text-decoration: underline;
+    }
 </style>
 {% endblock head_extra %}
 
@@ -166,7 +179,10 @@
     <div class="download-link-section">
         <h3><span class="magnet-emoji">🧲</span> <a href="{{ magnet_link }}" class="magnet-link-text">MAGNET LINK</a>
         </h3>
-        </div>
+        <!-- <p style="margin-top: 0.5rem;">
+                            <a href="/torrent/{{ sha }}/download" class="torrent-file-link">Download .torrent File</a>
+                        </p> -->
+    </div>
 
     <div class="description-section">
         <p>Your download is ready. Click the magnet link above to start downloading with your torrent client.</p>
