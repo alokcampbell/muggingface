@@ -12,26 +12,18 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex, PoisonError},
 };
-use tokio::fs::{self, File};
+use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use anyhow::Result;
 use bendy::{decoding::FromBencode, encoding::ToBencode, value::Value};
-use directories::BaseDirs;
 use hex;
 use hf_hub::api::sync::Api;
 use librqbit;
 use reqwest;
 use sha1::{Digest, Sha1};
-use shuttle_actix_web::ShuttleActixWeb;
 use shuttle_runtime::{SecretStore, Secrets};
 use sqlx::PgPool;
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex, PoisonError},
-};
 use tera::{Context, Tera};
-use tokio::fs::{self};
 use tracing::{error, info};
 use urlencoding;
 
