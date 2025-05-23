@@ -24,8 +24,9 @@
     height: auto;
     margin-bottom: 2rem;
   }
+
   body.dark-mode img.logo-image {
-      filter: brightness(0.8) contrast(1.2);
+    filter: brightness(0.8) contrast(1.2);
   }
 
   .top-torrents-section {
@@ -37,17 +38,21 @@
     margin-left: auto;
     margin-right: auto;
   }
+
   body.dark-mode .top-torrents-section {
     border-top-color: #444;
   }
+
   .top-torrents-section h2 {
     text-align: center;
     margin-bottom: 1rem;
   }
+
   .top-torrents-section ul {
     list-style-type: decimal;
     padding-left: 20px;
   }
+
   .top-torrents-section li {
     margin-bottom: 0.5rem;
   }
@@ -66,8 +71,75 @@
     font-weight: bold;
     margin-bottom: 1rem;
   }
+
   body.dark-mode .welcome {
     color: #e0e0e0;
+  }
+
+  /* Search Bar Styles */
+  .search-container {
+    position: relative;
+    width: 100%;
+    max-width: 500px;
+    /* Adjust as needed */
+    margin-bottom: 1.5rem;
+  }
+
+  #search-input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+  }
+
+  body.dark-mode #search-input {
+    background-color: #333;
+    border-color: #555;
+    color: #f0f0f0;
+  }
+
+  #search-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    z-index: 1000;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  body.dark-mode #search-suggestions {
+    background-color: #2c2c2c;
+    border-color: #555;
+  }
+
+  #search-suggestions div {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    border-bottom: 1px solid #eee;
+  }
+
+  body.dark-mode #search-suggestions div {
+    border-bottom-color: #444;
+    color: #e0e0e0;
+  }
+
+  #search-suggestions div:last-child {
+    border-bottom: none;
+  }
+
+  #search-suggestions div:hover {
+    background-color: #f0f0f0;
+  }
+
+  body.dark-mode #search-suggestions div:hover {
+    background-color: #4a4a4a;
   }
 </style>
 {% endblock head_extra %}
@@ -78,7 +150,12 @@
 <div class="container">
   <h1 class="welcome">Welcome to Muggingface</h1>
   <img src="/static/muggingface_large.png" alt="muggingface.co Logo" class="logo-image">
-  <p>Turn any Huggingface repo into a torrent.</p>
+  <div class="search-container">
+    <input type="search" id="search-input" placeholder="Search models (e.g. stabilityai/stable-diffusion-2-1)">
+    <div id="search-suggestions"></div>
+  </div>
+
+  <p>Or, turn any Huggingface repo into a torrent by modifying the URL:</p>
   <ol>
     <li>Find a model on <a href="https://huggingface.co/models" target="_blank" rel="noopener">huggingface.co</a>.</li>
     <li>Change the url, from <code>huggingface.co</code> to <code>muggingface.co</code> (e.g.,
@@ -110,6 +187,102 @@
 
 {% block scripts %}
 <script>
-      // Modal-related JavaScript removed.
+  const searchInput = document.getElementById('search-input');
+  const suggestionsContainer = document.getElementById('search-suggestions');
+  let debounceTimer;
+  let initialSuggestionsLoaded = false;
+
+  function fetchAndDisplaySuggestions(query) {
+    suggestionsContainer.innerHTML = ''; // Clear previous suggestions
+    suggestionsContainer.style.display = 'none';
+
+    // Only make a request if query is non-empty OR if it's the initial load (empty query for top 3)
+    if (query.length > 0 || (query.length === 0 && !initialSuggestionsLoaded)) {
+      // For initial load, we want to mark it as loaded AFTER the fetch, regardless of query length check here.
+    } else if (query.length < 2 && query.length !== 0) { // Don't search for very short queries, unless it's an empty initial query
+      return;
+    }
+
+    fetch(`/search?q=${encodeURIComponent(query)}`)
+      .then(response => response.json())
+      .then(data => {
+        if (query.length === 0 && !initialSuggestionsLoaded) {
+          initialSuggestionsLoaded = true; // Mark as loaded after first empty query fetch
+        }
+        if (data && data.length > 0) {
+          data.forEach(item => {
+            const div = document.createElement('div');
+            div.textContent = item.full_repo;
+            div.addEventListener('click', () => {
+              window.location.href = `/${item.full_repo}`;
+            });
+            suggestionsContainer.appendChild(div);
+          });
+          suggestionsContainer.style.display = 'block';
+        } else {
+          suggestionsContainer.style.display = 'none';
+        }
+      })
+      .catch(error => {
+        console.error('Error fetching search results:', error);
+        suggestionsContainer.style.display = 'none';
+        if (query.length === 0 && !initialSuggestionsLoaded) {
+          initialSuggestionsLoaded = true; // Also mark as loaded on error to prevent re-fetch loop
+        }
+      });
+  }
+
+  searchInput.addEventListener('focus', () => {
+    if (!initialSuggestionsLoaded) {
+      // Fetch initial suggestions if the input is empty and they haven't been loaded yet
+      if (searchInput.value.trim() === '') {
+        fetchAndDisplaySuggestions('');
+      }
+    }
+  });
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    const query = searchInput.value.trim();
+
+    if (query.length === 0) { // If user clears input, show top 3 again
+      initialSuggestionsLoaded = false; // Allow re-fetching top 3
+      fetchAndDisplaySuggestions('');
+      return;
+    }
+
+    if (query.length < 2) {
+      suggestionsContainer.innerHTML = '';
+      suggestionsContainer.style.display = 'none';
+      return;
+    }
+
+    debounceTimer = setTimeout(() => {
+      fetchAndDisplaySuggestions(query);
+    }, 300); // 300ms debounce
+  });
+
+  // Hide suggestions when clicking outside
+  document.addEventListener('click', (event) => {
+    if (!searchInput.contains(event.target) && !suggestionsContainer.contains(event.target)) {
+      suggestionsContainer.style.display = 'none';
+    }
+  });
+
+  // Optional: handle Enter key press on search input
+  searchInput.addEventListener('keypress', (event) => {
+    if (event.key === 'Enter') {
+      const firstSuggestion = suggestionsContainer.firstChild;
+      if (firstSuggestion && firstSuggestion.click) {
+        firstSuggestion.click(); // Navigate to the first suggestion
+      } else if (searchInput.value.trim()) {
+        // Fallback: if no suggestions, try to navigate directly if input looks like a repo slug
+        const query = searchInput.value.trim();
+        if (query.includes('/')) { // Basic check
+          window.location.href = `/${query}`;
+        }
+      }
+    }
+  });
 </script>
 {% endblock scripts %}

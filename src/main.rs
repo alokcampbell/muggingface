@@ -33,6 +33,18 @@ struct TopTorrent {
     repo_name: String,
 }
 
+#[derive(serde::Serialize, sqlx::FromRow)]
+struct SearchSuggestion {
+    author: String,
+    repo_name: String,
+    full_repo: String,
+}
+
+#[derive(serde::Deserialize)]
+struct SearchQuery {
+    q: String,
+}
+
 fn get_seeding_dir() -> Result<PathBuf> {
     const SEEDING_DIR: &str = "seeding";
     let base_dirs =
@@ -833,6 +845,88 @@ async fn about_page(state: web::Data<Arc<AppState>>) -> impl Responder {
     }
 }
 
+#[get("/search")]
+async fn search_torrents(
+    query_params: web::Query<SearchQuery>,
+    state: web::Data<Arc<AppState>>,
+) -> impl Responder {
+    let search_query = query_params.q.trim();
+
+    if search_query.is_empty() {
+        // Fetch top 3 most popular torrents
+        match sqlx::query_as::<_, TopTorrent>(
+            "SELECT author, repo_name FROM torrents ORDER BY page_hits DESC, updated_at DESC LIMIT 3"
+        )
+        .fetch_all(&state.db_pool)
+        .await
+        {
+            Ok(results) => {
+                let suggestions: Vec<SearchSuggestion> = results.into_iter().map(|t| SearchSuggestion {
+                    full_repo: format!("{}/{}", t.author, t.repo_name),
+                    author: t.author,
+                    repo_name: t.repo_name,
+                }).collect();
+                HttpResponse::Ok().json(suggestions)
+            }
+            Err(e) => {
+                error!("Failed to fetch top torrents for search suggestions: {}", e);
+                HttpResponse::Ok().json(Vec::<SearchSuggestion>::new()) // Return empty on error but 200 OK for frontend
+            }
+        }
+    } else {
+        // Using pg_trgm for similarity search
+        // Ensure the pg_trgm extension is created in your database:
+        // CREATE EXTENSION IF NOT EXISTS pg_trgm;
+        // And create GIN indexes for better performance:
+        // CREATE INDEX IF NOT EXISTS idx_torrents_author_trgm ON torrents USING gin (author gin_trgm_ops);
+        // CREATE INDEX IF NOT EXISTS idx_torrents_repo_name_trgm ON torrents USING gin (repo_name gin_trgm_ops);
+        const SIMILARITY_THRESHOLD: f32 = 0.1; // Adjust as needed
+
+        match sqlx::query_as::<_, TopTorrent>(
+            "SELECT author, repo_name FROM torrents WHERE similarity(author, $1) > $2 OR similarity(repo_name, $1) > $2 ORDER BY GREATEST(similarity(author, $1), similarity(repo_name, $1)) DESC, page_hits DESC LIMIT 10"
+        )
+        .bind(search_query)
+        .bind(SIMILARITY_THRESHOLD)
+        .fetch_all(&state.db_pool)
+        .await
+        {
+            Ok(results) => {
+                let suggestions: Vec<SearchSuggestion> = results.into_iter().map(|t| SearchSuggestion {
+                    full_repo: format!("{}/{}", t.author, t.repo_name),
+                    author: t.author,
+                    repo_name: t.repo_name,
+                }).collect();
+                HttpResponse::Ok().json(suggestions)
+            }
+            Err(e) => {
+                error!("Failed to search torrents with query '{}' using trigram: {}", search_query, e);
+                // Fallback to ILIKE if trigram query fails (e.g., extension not enabled)
+                let fallback_search_term = format!("%{}%", search_query);
+                match sqlx::query_as::<_, TopTorrent>(
+                    "SELECT author, repo_name FROM torrents WHERE author ILIKE $1 OR repo_name ILIKE $1 ORDER BY page_hits DESC, updated_at DESC LIMIT 10"
+                )
+                .bind(&fallback_search_term)
+                .fetch_all(&state.db_pool)
+                .await
+                {
+                    Ok(fallback_results) => {
+                         let suggestions: Vec<SearchSuggestion> = fallback_results.into_iter().map(|t| SearchSuggestion {
+                            full_repo: format!("{}/{}", t.author, t.repo_name),
+                            author: t.author,
+                            repo_name: t.repo_name,
+                        }).collect();
+                        HttpResponse::Ok().json(suggestions)
+                    }
+                    Err(fallback_e) => {
+                        error!("Fallback ILIKE search also failed for query '{}': {}", search_query, fallback_e);
+                        HttpResponse::InternalServerError().json(Vec::<SearchSuggestion>::new())
+                    }
+                }
+            }
+        }
+    }
+}
+
 struct AppState {
     hf_api: Api,
     download_progress: Mutex<HashMap<String, u64>>,
@@ -896,6 +990,7 @@ async fn main(
                 .service(repo_info)
                 .service(download_torrent_by_sha)
                 .service(about_page)
+                .service(search_torrents)
                 .app_data(web::Data::new(app_state.clone()))
                 .app_data(web::Data::new(secrets))
                 .wrap(Logger::default()),
