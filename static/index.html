@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}muggingface.co - Torrent Your Favorite Hugging Face Models{% endblock title %}
+{% block title %}muggingface.co - Torrent Your Favorite ML Models{% endblock title %}
 
 {% block head_extra %}
 <style>
@@ -78,15 +78,16 @@
 <div class="container">
   <h1 class="welcome">Welcome to Muggingface</h1>
   <img src="/static/muggingface_large.png" alt="muggingface.co Logo" class="logo-image">
-  <p>Turn any Hugging Face repo into a torrent.</p>
-  <p>To get started:</p>
+  <p>Turn any Huggingface repo into a torrent.</p>
   <ol>
     <li>Find a model on <a href="https://huggingface.co/models" target="_blank" rel="noopener">huggingface.co</a>.</li>
-    <li>Copy the model name (e.g., <code>bert-base-uncased</code> or <code>stabilityai/stable-diffusion-2-1</code>).</li>
-    <li>Paste it into the URL after <code>muggingface.co/</code> (e.g., <code>muggingface.co/bert-base-uncased</code> or
-      <code>muggingface.co/stabilityai/stable-diffusion-2-1</code>).
+    <li>Change the url, from <code>huggingface.co</code> to <code>muggingface.co</code> (e.g.,
+      <a href="https://huggingface.co/stabilityai/stable-diffusion-2-1" target="_blank"
+        rel="noopener"><code>huggingface.co/stabilityai/stable-diffusion-2-1</code></a> becomes
+      <a href="https://muggingface.co/stabilityai/stable-diffusion-2-1" target="_blank"
+        rel="noopener"><code>muggingface.co/stabilityai/stable-diffusion-2-1</code></a>).
     </li>
-    <li>Wait for the torrent to generate.</li>
+    <li>Wait for the torrent to generate. This may take a few minutes.</li>
     <li>Download using the magnet link.</li>
   </ol>
 </div>
