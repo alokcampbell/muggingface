@@ -790,7 +790,7 @@ struct Progress {
     total: u64,
 }
 
-#[derive(sqlx::FromRow)] // Helper struct for fetching torrent file and repo name
+#[derive(sqlx::FromRow)] // Helper struct for fetching the torrent file and repo name
 struct TorrentDownloadInfo {
     repo_name: String,
     torrent_file: Vec<u8>,
