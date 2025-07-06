@@ -17,11 +17,41 @@ https://muggingface.co
 
 1. Visit `https://muggingface.com/{username}/{repository}`
 2. The service will:
-   - Check if the repository exists
-   - Calculate total size
-   - Download files if not already present
-   - Generate a torrent file
+   - Check if the repository exists on Hugging Face
+   - Calculate total size and verify it's under the 60GB limit
+   - Use Git LFS-aware cloning (proper repository cloning with `git clone`)
+   - Identify and download Git LFS files separately via HTTP
+   - Generate a torrent file from the complete repository
    - Provide a magnet link for sharing
+
+## Technical Improvements
+
+### Git LFS-Aware Repository Cloning
+
+Unlike simple HTTP file downloading, muggingface now uses a proper Git-based approach:
+
+- **Git Clone with LFS Skip**: Uses `GIT_LFS_SKIP_SMUDGE=1 git clone` to get the repository structure first
+- **LFS File Detection**: Identifies Git LFS files using `git lfs ls-files` 
+- **Selective LFS Download**: Downloads only the actual LFS file content via HTTP resolve URLs
+- **Repository Integrity**: Maintains proper Git repository structure and metadata
+- **Efficient Caching**: Avoids re-downloading files that are already present and complete
+
+This approach is similar to how the official `huggingface_hub` Python SDK works and ensures better compatibility and reliability.
+
+### Authentication Support
+
+Muggingface supports Hugging Face authentication tokens for:
+
+- **Private Repositories**: Access private models, datasets, and spaces with your HF token
+- **Gated Repositories**: Download gated content you have access to
+- **Higher Rate Limits**: Avoid API throttling with authenticated requests
+
+To use authentication, add your Hugging Face token to the `Secrets.toml` file:
+```toml
+HF_TOKEN = "hf_your_token_here"
+```
+
+Get your token from [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
 
 ## Technical Details
 
@@ -50,6 +80,8 @@ cd muggingface
 2. Create a `Secrets.toml` file with your database configuration:
 ```toml
 DATABASE_URL = "postgres://username:password@localhost:5432/muggingface"
+# Optional: Add HF token for private repository access
+HF_TOKEN = "hf_your_token_here"
 ```
 
 3. Run database migrations:
