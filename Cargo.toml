@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 actix-files = "0.6.6"
-actix-web = "4.3.1"
+actix-web = { version = "4.3.1", features = ["macros"] }
 anyhow = "1.0.98"
 bendy = "0.3.3"
 chrono = "0.4.41"
@@ -17,14 +17,11 @@ reqwest = { version = "0.12", features = ["json"] }
 serde = "1.0.219"
 serde_json = "1.0"
 sha1 = "0.10"
-shuttle = "0.8.0"
-shuttle-actix-web = "0.53.0"
-shuttle-runtime = "0.53.0"
-shuttle-secrets = "0.42.0"
 tera = "1.20.0"
-tokio = { version = "1.26.0", features = ["process"] }
+tokio = { version = "1.26.0", features = ["process", "macros", "rt-multi-thread"] }
 sqlx = { version = "0.7", features = [ "runtime-tokio-rustls", "postgres" ] }
 tracing = "0.1.40"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5.4"
 urlencoding = "2.1"
 

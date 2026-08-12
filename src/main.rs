@@ -2,10 +2,9 @@ use actix_files::Files;
 use actix_web::middleware::Logger;
 use actix_web::{
     get,
-    web::{self, Json, ServiceConfig},
-    Error as ActixError, HttpResponse, Responder,
+    web::{self, Json},
+    App, Error as ActixError, HttpResponse, HttpServer, Responder,
 };
-use shuttle_actix_web::ShuttleActixWeb;
 use directories::BaseDirs;
 use std::{
     collections::HashMap,
@@ -21,7 +20,6 @@ use hf_hub::api::sync::Api;
 use librqbit;
 use reqwest;
 use sha1::{Digest, Sha1};
-use shuttle_runtime::{SecretStore, Secrets};
 use sqlx::PgPool;
 use tera::{Context, Tera};
 use tracing::{error, info};
@@ -329,6 +327,12 @@ mod git_lfs_clone {
 }
 
 fn get_seeding_dir() -> Result<PathBuf> {
+    if let Ok(dir) = std::env::var("SEEDING_DIR") {
+        let path = PathBuf::from(dir);
+        if !path.as_os_str().is_empty() {
+            return Ok(path);
+        }
+    }
     const SEEDING_DIR: &str = "seeding";
     let base_dirs =
         BaseDirs::new().ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
@@ -386,6 +390,11 @@ fn render_finished_html_response(
     context.insert("magnet_link", magnet_link);
     tera.render("finished.html", &context)
         .expect("Failed to render finished template")
+}
+
+#[get("/healthz")]
+async fn healthz() -> impl Responder {
+    HttpResponse::Ok().content_type("text/plain").body("ok")
 }
 
 #[get("/")]
@@ -1307,23 +1316,21 @@ struct AppState {
     hf_token: Option<String>,
 }
 
-#[shuttle_runtime::main]
-async fn main(
-    #[Secrets] secrets: SecretStore,
-) -> ShuttleActixWeb<impl FnOnce(&mut ServiceConfig) + Send + Clone + 'static> {
-    // Initialize server directories at startup
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
     if let Err(e) = ensure_server_directories() {
         error!("Failed to initialize server directories: {}", e);
-        // Continue anyway, as we'll try to create directories as needed
     }
 
-    // Get database URL from secrets
-    let database_url = secrets
-        .get("DATABASE_URL")
-        .ok_or_else(|| anyhow::anyhow!("DATABASE_URL must be set in Secrets.toml"))
-        .expect("DATABASE_URL not found in secrets");
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
-    // Create a connection pool
     let db_pool = match PgPool::connect(&database_url).await {
         Ok(pool) => {
             info!("Successfully connected to the database");
@@ -1331,23 +1338,19 @@ async fn main(
         }
         Err(e) => {
             error!("Failed to connect to the database: {}", e);
-            panic!("Database connection failed: {}", e); // Or handle more gracefully
+            panic!("Database connection failed: {}", e);
         }
     };
 
-    // Run database migrations
     match sqlx::migrate!("./migrations").run(&db_pool).await {
         Ok(_) => info!("Database migrations ran successfully"),
         Err(e) => {
             error!("Failed to run database migrations: {}", e);
-            // Depending on the error, you might want to panic or handle it gracefully
-            // For now, we log and continue, but this might not be ideal for all migration errors
         }
     }
 
-    // Get HF token from secrets if available
-    let hf_token = secrets.get("HF_TOKEN");
-    if let Some(_) = hf_token {
+    let hf_token = std::env::var("HF_TOKEN").ok().filter(|s| !s.is_empty());
+    if hf_token.is_some() {
         info!("Using HF token for authentication");
     } else {
         info!("No HF token provided, will only work with public repositories");
@@ -1362,21 +1365,27 @@ async fn main(
         db_pool,
         hf_token,
     });
-    let config = move |cfg: &mut ServiceConfig| {
-        cfg.service(
-            web::scope("")
-                .service(index)
-                .service(Files::new("/static", "static/").index_file("index.html"))
-                .service(progress_json)
-                .service(repo_info)
-                .service(download_torrent_by_sha)
-                .service(about_page)
-                .service(search_torrents)
-                .app_data(web::Data::new(app_state.clone()))
-                .app_data(web::Data::new(secrets))
-                .wrap(Logger::default()),
-        );
-    };
 
-    Ok(config.into())
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(8080);
+    info!("Listening on 0.0.0.0:{port}");
+
+    HttpServer::new(move || {
+        App::new()
+            .app_data(web::Data::new(app_state.clone()))
+            .wrap(Logger::default())
+            .service(healthz)
+            .service(index)
+            .service(Files::new("/static", "static/").index_file("index.html"))
+            .service(progress_json)
+            .service(repo_info)
+            .service(download_torrent_by_sha)
+            .service(about_page)
+            .service(search_torrents)
+    })
+    .bind(("0.0.0.0", port))?
+    .run()
+    .await
 }

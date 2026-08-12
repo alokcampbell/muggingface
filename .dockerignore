@@ -1,0 +1,10 @@
+.git
+.shuttle
+target
+tmp
+Secrets.toml
+Secrets*.toml
+.env
+*.md
+.vscode
+.DS_Store

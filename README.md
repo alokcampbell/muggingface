@@ -92,7 +92,21 @@ sqlx migrate run
 
 4. Start the development server:
 ```bash
+export DATABASE_URL="postgres://username:password@localhost:5432/muggingface"
 cargo run
+```
+
+The server listens on `PORT` (default `8080`). Optional: `HF_TOKEN`, `SEEDING_DIR` (default `$HOME/seeding`).
+
+### Docker / homelab
+
+```bash
+docker build -t muggingface:local .
+docker run --rm -p 8080:8080 \
+  -e DATABASE_URL=postgres://muggingface:password@postgres:5432/muggingface \
+  -e HF_TOKEN \
+  -v muggingface-data:/data \
+  muggingface:local
 ```
 
 ## License
