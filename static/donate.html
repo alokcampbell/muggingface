@@ -2,80 +2,36 @@
 
 {% block title %}Download Limit - {{ full_repo }} - muggingface.co{% endblock title %}
 
-{% block head_extra %}
-<style>
-    .donate-container {
-        padding: 2rem;
-        text-align: center;
-        max-width: 800px;
-        margin: 2rem auto;
-    }
-
-    .donate-container h1 {
-        margin-bottom: 1rem;
-        color: #000000;
-        font-size: 1.8rem;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    body.dark-mode .donate-container h1 {
-        color: #ffffff;
-    }
-
-    .donate-container p {
-        font-size: 1.1rem;
-        line-height: 1.6;
-        margin-bottom: 1.5rem;
-    }
-
-    body.dark-mode .donate-container p {
-        color: #c0c0c0;
-    }
-
-    .donate-container .links {
-        margin-bottom: 1.5rem;
-    }
-
-    .donate-container .links a {
-        display: inline-block;
-        margin: 0 10px;
-        color: #007bff;
-        text-decoration: none;
-    }
-    .donate-container img {
-        max-width: 150px;
-        height: auto;
-        margin-top: 1rem;
-    }
-    body.dark-mode .donate-container img {
-        filter: brightness(0.8) contrast(1.2);
-    }
-</style>
-{% endblock head_extra %}
-
-{% block page_title %}muggingface.co{% endblock page_title %}
+{% block page_title %}{{ full_repo }}{% endblock page_title %}
 
 {% block content %}
-<div class="donate-container">
-    <h1>Download Limit Reached for {{ full_repo }}</h1>
-    <p>
-        The repository you are attempting to download, <strong>{{ full_repo }}</strong>,
-        is 60GB or larger.
+<article class="page">
+    <p class="kicker">Too large to clone</p>
+    <h1>{{ full_repo }}</h1>
+    <p class="lede">
+        This repo is {{ max_size_gb }}&nbsp;GB or larger. We only pull a model once to seed it, but a first clone that big still fills the disk.
     </p>
-    <div class="links">
-        <a href="#">Eth 0xf4cabfd7337c02b19c88de417f3ff49bc3e6659b</a>
-        <a href="#">Bit bc1q9j0mu3esp5qhlyc6lgx0ppzgxvwppx7s6upxhn</a>
-        <a href="#">Sol Gy8EAxsLGpkrxMkFzP8jbsJ5q7cxsnwZqv6Af3eRQVBz</a>
-        <a href="#">Doge DEsnFh6ySvn9biAvymY9no4T1aqJme2csq</a>
-    </div>
     <p>
-        Muggingface.co is a community-supported service. If you find this service useful and wish to see
-        the download cap increased, or to help cover server and bandwidth costs, please consider donating.
+        If you want the cap raised, or to help cover bandwidth, donate:
     </p>
-    <div>
-        <img src="/static/muggingface_large.png" alt="muggingface.co">
-    </div>
-</div>
+    <dl class="wallets">
+        <div>
+            <dt>ETH</dt>
+            <dd><code>0xf4cabfd7337c02b19c88de417f3ff49bc3e6659b</code></dd>
+        </div>
+        <div>
+            <dt>BTC</dt>
+            <dd><code>bc1q9j0mu3esp5qhlyc6lgx0ppzgxvwppx7s6upxhn</code></dd>
+        </div>
+        <div>
+            <dt>SOL</dt>
+            <dd><code>Gy8EAxsLGpkrxMkFzP8jbsJ5q7cxsnwZqv6Af3eRQVBz</code></dd>
+        </div>
+        <div>
+            <dt>DOGE</dt>
+            <dd><code>DEsnFh6ySvn9biAvymY9no4T1aqJme2csq</code></dd>
+        </div>
+    </dl>
+    <p class="hint">Already torrented models stay available as magnets even after we drop the clone from disk.</p>
+</article>
 {% endblock content %}

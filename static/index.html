@@ -2,184 +2,39 @@
 
 {% block title %}muggingface.co - Torrent Your Favorite ML Models{% endblock title %}
 
-{% block head_extra %}
-<style>
-  p {
-    font-size: 1.2rem;
-    margin-bottom: 1rem;
-  }
-
-  ol {
-    list-style-position: inside;
-    font-size: 1.1rem;
-    margin-bottom: 2rem;
-  }
-
-  li {
-    margin: 0.5rem 0;
-  }
-
-  img.logo-image {
-    max-width: 450px;
-    height: auto;
-    margin-bottom: 2rem;
-  }
-
-  body.dark-mode img.logo-image {
-    filter: brightness(0.8) contrast(1.2);
-  }
-
-  .top-torrents-section {
-    margin-top: 3rem;
-    padding-top: 1.5rem;
-    border-top: 1px solid #eee;
-    text-align: left;
-    max-width: 700px;
-    margin-left: auto;
-    margin-right: auto;
-  }
-
-  body.dark-mode .top-torrents-section {
-    border-top-color: #444;
-  }
-
-  .top-torrents-section h2 {
-    text-align: center;
-    margin-bottom: 1rem;
-  }
-
-  .top-torrents-section ul {
-    list-style-type: decimal;
-    padding-left: 20px;
-  }
-
-  .top-torrents-section li {
-    margin-bottom: 0.5rem;
-  }
-
-  .container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem;
-    text-align: center;
-  }
-
-  .welcome {
-    font-size: 3rem;
-    font-weight: bold;
-    margin-bottom: 1rem;
-  }
-
-  body.dark-mode .welcome {
-    color: #e0e0e0;
-  }
-
-  .search-container {
-    position: relative;
-    width: 100%;
-    max-width: 500px;
-    margin-bottom: 1.5rem;
-  }
-
-  #search-input {
-    width: 100%;
-    padding: 0.75rem 1rem;
-    font-size: 1rem;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    box-sizing: border-box;
-  }
-
-  body.dark-mode #search-input {
-    background-color: #333;
-    border-color: #555;
-    color: #f0f0f0;
-  }
-
-  #search-suggestions {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background-color: white;
-    border: 1px solid #ccc;
-    border-top: none;
-    border-radius: 0 0 4px 4px;
-    z-index: 1000;
-    max-height: 300px;
-    overflow-y: auto;
-  }
-
-  body.dark-mode #search-suggestions {
-    background-color: #2c2c2c;
-    border-color: #555;
-  }
-
-  #search-suggestions div {
-    padding: 0.75rem 1rem;
-    cursor: pointer;
-    border-bottom: 1px solid #eee;
-  }
-
-  body.dark-mode #search-suggestions div {
-    border-bottom-color: #444;
-    color: #e0e0e0;
-  }
-
-  #search-suggestions div:last-child {
-    border-bottom: none;
-  }
-
-  #search-suggestions div:hover {
-    background-color: #f0f0f0;
-  }
-
-  body.dark-mode #search-suggestions div:hover {
-    background-color: #4a4a4a;
-  }
-</style>
-{% endblock head_extra %}
-
 {% block page_title %}Muggingface{% endblock page_title %}
 
 {% block content %}
-<div class="container">
-  <img src="/static/muggingface_large.png" alt="muggingface.co Logo" class="logo-image">
-  <div class="search-container">
+<article class="page home">
+  <img src="/static/muggingface_large.png" alt="muggingface.co" class="logo-hero">
+  <p class="kicker">Hugging Face repos as torrents</p>
+  <h1>Change one letter.</h1>
+  <p class="lede">Turn any Hugging Face repo into a torrent. Faster downloads, no Hub downtime, and once we seed it you keep the magnet.</p>
+
+  <div class="search-box">
     <input type="search" id="search-input" placeholder="Search models (e.g. openai-community/gpt2)" autocomplete="off">
     <div id="search-suggestions"></div>
   </div>
 
-  <p><b>Turn any Huggingface repo into a torrent by changing one letter!</b><br>
-    This speeds up your downloads, avoids censorship, and downtime :)</p>
-  <ol>
+  <ol class="steps">
     <li>Find a model on <a href="https://huggingface.co/models" target="_blank" rel="noopener">huggingface.co</a>.</li>
-    <li>Change the url from huggingface.co to muggingface.co<br>
-      <a href="https://huggingface.co/openai-community/gpt2" target="_blank"
-        rel="noopener"><code>huggingface.co/openai-community/gpt2</code></a> ->
-      <a href="https://muggingface.co/openai-community/gpt2" target="_blank"
-        rel="noopener"><code>muggingface.co/openai-community/gpt2</code></a>
+    <li>Swap the host:
+      <a href="https://huggingface.co/openai-community/gpt2" target="_blank" rel="noopener"><code>huggingface.co/…</code></a>
+      →
+      <a href="/openai-community/gpt2"><code>muggingface.co/…</code></a>
     </li>
-    <li>Download using the magnet link.</li>
+    <li>Open the magnet in your torrent client.</li>
   </ol>
-</div>
 
-{% if top_torrents %}
-<div class="top-torrents-section">
-  <h2>Top Torrents</h2>
-  <ul>
+  {% if top_torrents %}
+  <h2>Recently torrented</h2>
+  <ul class="card-list">
     {% for torrent in top_torrents %}
     <li><a href="/{{ torrent.author }}/{{ torrent.repo_name }}">{{ torrent.author }}/{{ torrent.repo_name }}</a></li>
     {% endfor %}
   </ul>
-</div>
-{% else %}
-<!-- Optional: Message if top_torrents is empty or failed to load -->
-<!-- <div class="top-torrents-section"><p>Top torrents are currently unavailable.</p></div> -->
-{% endif %}
-
+  {% endif %}
+</article>
 {% endblock content %}
 
 {% block scripts %}
@@ -190,13 +45,11 @@
   let initialSuggestionsLoaded = false;
 
   function fetchAndDisplaySuggestions(query) {
-    suggestionsContainer.innerHTML = ''; // Clear previous suggestions
+    suggestionsContainer.innerHTML = '';
     suggestionsContainer.style.display = 'none';
 
-    // Only make a request if query is non-empty OR if it's the initial load (empty query for top 3)
     if (query.length > 0 || (query.length === 0 && !initialSuggestionsLoaded)) {
-      // For initial load, we want to mark it as loaded AFTER the fetch, regardless of query length check here.
-    } else if (query.length < 2 && query.length !== 0) { // Don't search for very short queries, unless it's an empty initial query
+    } else if (query.length < 2 && query.length !== 0) {
       return;
     }
 
@@ -207,7 +60,7 @@
       })
       .then(data => {
         if (query.length === 0 && !initialSuggestionsLoaded) {
-          initialSuggestionsLoaded = true; // Mark as loaded after first empty query fetch
+          initialSuggestionsLoaded = true;
         }
         if (data && data.length > 0) {
           data.forEach(item => {
@@ -227,17 +80,14 @@
         console.error('Error fetching search results:', error);
         suggestionsContainer.style.display = 'none';
         if (query.length === 0 && !initialSuggestionsLoaded) {
-          initialSuggestionsLoaded = true; // Also mark as loaded on error to prevent re-fetch loop
+          initialSuggestionsLoaded = true;
         }
       });
   }
 
   searchInput.addEventListener('focus', () => {
-    if (!initialSuggestionsLoaded) {
-      // Fetch initial suggestions if the input is empty and they haven't been loaded yet
-      if (searchInput.value.trim() === '') {
-        fetchAndDisplaySuggestions('');
-      }
+    if (!initialSuggestionsLoaded && searchInput.value.trim() === '') {
+      fetchAndDisplaySuggestions('');
     }
   });
 
@@ -245,8 +95,8 @@
     clearTimeout(debounceTimer);
     const query = searchInput.value.trim();
 
-    if (query.length === 0) { // If user clears input, show top 3 again
-      initialSuggestionsLoaded = false; // Allow re-fetching top 3
+    if (query.length === 0) {
+      initialSuggestionsLoaded = false;
       fetchAndDisplaySuggestions('');
       return;
     }
@@ -259,26 +109,23 @@
 
     debounceTimer = setTimeout(() => {
       fetchAndDisplaySuggestions(query);
-    }, 300); // 300ms debounce
+    }, 300);
   });
 
-  // Hide suggestions when clicking outside
   document.addEventListener('click', (event) => {
     if (!searchInput.contains(event.target) && !suggestionsContainer.contains(event.target)) {
       suggestionsContainer.style.display = 'none';
     }
   });
 
-  // Optional: handle Enter key press on search input
   searchInput.addEventListener('keypress', (event) => {
     if (event.key === 'Enter') {
       const firstSuggestion = suggestionsContainer.firstChild;
       if (firstSuggestion && firstSuggestion.click) {
-        firstSuggestion.click(); // Navigate to the first suggestion
+        firstSuggestion.click();
       } else if (searchInput.value.trim()) {
-        // Fallback: if no suggestions, try to navigate directly if input looks like a repo slug
         const query = searchInput.value.trim();
-        if (query.includes('/')) { // Basic check
+        if (query.includes('/')) {
           window.location.href = `/${query}`;
         }
       }

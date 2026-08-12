@@ -9,7 +9,8 @@ pub mod state;
 pub mod web;
 
 /// Repos larger than this are not cloned; we show the donate page instead.
-pub const MAX_REPO_SIZE_BYTES: u64 = 60 * 1024 * 1024 * 1024;
+/// We only pull a model once to seed it, so this is a disk/first-clone cap.
+pub const MAX_REPO_SIZE_BYTES: u64 = 100 * 1024 * 1024 * 1024;
 
 pub fn split_repo_id(full_repo: &str) -> Option<(String, String)> {
     let full_repo = full_repo.trim().trim_matches('/');
@@ -97,7 +98,8 @@ mod tests {
     fn size_limit_uses_hf_used_storage() {
         assert!(!over_size_limit(None));
         assert!(!over_size_limit(Some(12 * 1024 * 1024 * 1024)));
+        assert!(!over_size_limit(Some(77 * 1024 * 1024 * 1024)));
         assert!(over_size_limit(Some(MAX_REPO_SIZE_BYTES)));
-        assert!(over_size_limit(Some(77 * 1024 * 1024 * 1024)));
+        assert!(over_size_limit(Some(101 * 1024 * 1024 * 1024)));
     }
 }

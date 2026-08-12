@@ -2,71 +2,13 @@
 
 {% block title %}{{ full_repo }} - preparing - muggingface.co{% endblock title %}
 
-{% block head_extra %}
-<style>
-  .repo-page {
-    max-width: 40rem;
-    margin: 0 auto;
-    padding: 1.5rem 1.25rem 3rem;
-  }
-  .repo-kicker {
-    font-size: 0.75rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #0b6e4f;
-    font-weight: 650;
-    margin: 0 0 0.4rem;
-  }
-  body.dark-mode .repo-kicker { color: #6ee7b7; }
-  .repo-page h1 {
-    font-size: 1.45rem;
-    line-height: 1.25;
-    margin: 0 0 0.5rem;
-    word-break: break-word;
-  }
-  .sha {
-    margin: 0 0 1.25rem;
-    color: #666;
-    font-size: 0.85rem;
-  }
-  body.dark-mode .sha { color: #999; }
-  #status-message {
-    margin: 0 0 0.75rem;
-    font-weight: 650;
-  }
-  #p-container {
-    width: 100%;
-    background: #e4e4e0;
-    border-radius: 999px;
-    overflow: hidden;
-    height: 12px;
-  }
-  body.dark-mode #p-container { background: #333; }
-  #p-bar {
-    width: 0%;
-    height: 12px;
-    background: #0b6e4f;
-    color: transparent;
-    transition: width 0.4s ease;
-  }
-  body.dark-mode #p-bar { background: #10b981; }
-  #p-label {
-    margin-top: 0.5rem;
-    font-variant-numeric: tabular-nums;
-    font-size: 0.9rem;
-    color: #555;
-  }
-  body.dark-mode #p-label { color: #aaa; }
-</style>
-{% endblock head_extra %}
-
 {% block page_title %}{{ full_repo }}{% endblock page_title %}
 
 {% block content %}
-<article class="repo-page">
-  <p class="repo-kicker">Preparing torrent</p>
+<article class="page">
+  <p class="kicker">Preparing torrent</p>
   <h1>{{ full_repo }}</h1>
-  <p class="sha"><code>{{ sha }}</code></p>
+  <p class="hint" style="margin-bottom: 1.25rem;"><code>{{ sha }}</code></p>
   <div id="status-message">Fetching repository…</div>
   <div id="p-container"><div id="p-bar">0%</div></div>
   <div id="p-label">0%</div>

@@ -5,18 +5,19 @@
 {% block page_title %}Not found{% endblock page_title %}
 
 {% block content %}
-<div class="container" style="padding: 2rem; text-align: center;">
-  <h1>Repository not found</h1>
-  <p><code>{{ full_repo }}</code> is not on Hugging Face (removed, renamed, or private).</p>
+<article class="page">
+  <p class="kicker">Not on Hugging Face</p>
+  <h1>{{ full_repo }}</h1>
+  <p class="lede">Removed, renamed, or private. Nothing to torrent.</p>
   {% if suggestions %}
-  <p>Did you mean:</p>
-  <ul style="list-style: none; padding: 0;">
+  <h2>Did you mean</h2>
+  <ul class="card-list">
     {% for item in suggestions %}
-    <li style="margin: 0.4rem 0;"><a href="/{{ item.full_repo | safe }}">{{ item.full_repo }}</a></li>
+    <li><a href="/{{ item.full_repo | safe }}">{{ item.full_repo }}</a></li>
     {% endfor %}
   </ul>
   {% else %}
-  <p>Try searching from the <a href="/">home page</a>.</p>
+  <p class="hint">Try searching from the <a href="/">home page</a>.</p>
   {% endif %}
-</div>
+</article>
 {% endblock content %}

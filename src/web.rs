@@ -58,6 +58,10 @@ fn loading_page(state: &SharedState, full_repo: &str, sha: &str) -> HttpResponse
 fn donate_page(state: &SharedState, full_repo: &str) -> HttpResponse {
     let mut context = Context::new();
     context.insert("full_repo", full_repo);
+    context.insert(
+        "max_size_gb",
+        &(crate::MAX_REPO_SIZE_BYTES / (1024 * 1024 * 1024)),
+    );
     render(&state.tera, "donate.html", &context)
 }
 

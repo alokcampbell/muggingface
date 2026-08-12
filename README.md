@@ -12,7 +12,7 @@ https://muggingface.co
 - Real-time download progress tracking
 - Automatic magnet link generation
 - Persistent storage of torrent files
-- Support for repositories up to 60GB in size
+- Support for repositories up to 100GB in size
 - Built with Rust and Actix-web for high performance
 
 ## How It Works
@@ -20,7 +20,7 @@ https://muggingface.co
 1. Visit `https://muggingface.com/{username}/{repository}`
 2. The service will:
    - Check if the repository exists on Hugging Face
-   - Calculate total size and verify it's under the 60GB limit
+   - Calculate total size and verify it's under the 100GB limit
    - Use Git LFS-aware cloning (proper repository cloning with `git clone`)
    - Identify and download Git LFS files separately via HTTP
    - Generate a torrent file from the complete repository

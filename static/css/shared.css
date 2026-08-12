@@ -154,3 +154,364 @@ body.dark-mode code, body.dark-mode .mono {
     background-color: rgba(255, 255, 255, 0.08);
 }
 
+/* Shared page chrome — home, repo, about, donate, 404 */
+.page {
+    max-width: 40rem;
+    margin: 0 auto;
+    padding: 1.5rem 1.25rem 3rem;
+}
+
+.kicker {
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #0b6e4f;
+    font-weight: 650;
+    margin: 0 0 0.4rem;
+}
+
+body.dark-mode .kicker {
+    color: #6ee7b7;
+}
+
+.page h1 {
+    font-size: 1.45rem;
+    line-height: 1.25;
+    margin: 0 0 1rem;
+    word-break: break-word;
+}
+
+.page h2 {
+    font-size: 1.05rem;
+    margin: 1.75rem 0 0.6rem;
+}
+
+.lede {
+    margin: 0 0 1.25rem;
+    color: #444;
+}
+
+body.dark-mode .lede {
+    color: #bbb;
+}
+
+.hint {
+    font-size: 0.9rem;
+    color: #555;
+    margin: 0;
+}
+
+body.dark-mode .hint {
+    color: #aaa;
+}
+
+.hint a {
+    font-weight: 650;
+}
+
+.btn-primary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    background: #0b6e4f;
+    color: #fff !important;
+    text-decoration: none !important;
+    font-weight: 650;
+    font-size: 1.05rem;
+    padding: 0.9rem 1rem;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.btn-primary:hover {
+    background: #085c42;
+    color: #fff !important;
+}
+
+body.dark-mode .btn-primary {
+    background: #059669;
+}
+
+body.dark-mode .btn-primary:hover {
+    background: #10b981;
+}
+
+.btn-row {
+    display: flex;
+    gap: 0.75rem;
+    margin: 0.75rem 0 1.5rem;
+    flex-wrap: wrap;
+}
+
+.btn-row button,
+.btn-row a {
+    flex: 1;
+    min-width: 8rem;
+    text-align: center;
+    background: #fff;
+    border: 1px solid #d8d8d2;
+    border-radius: 8px;
+    padding: 0.55rem 0.75rem;
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+    color: inherit;
+    text-decoration: none;
+}
+
+body.dark-mode .btn-row button,
+body.dark-mode .btn-row a {
+    background: #1c1c1c;
+    border-color: #333;
+    color: #ececec;
+}
+
+.meta {
+    display: grid;
+    gap: 0.75rem;
+    margin: 0 0 1.25rem;
+}
+
+.meta div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.meta dt {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #666;
+    font-weight: 650;
+}
+
+body.dark-mode .meta dt {
+    color: #999;
+}
+
+.meta dd {
+    margin: 0;
+}
+
+.card-list {
+    list-style: none;
+    padding: 0;
+    margin: 0.75rem 0 0;
+    border: 1px solid #e4e4e0;
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+}
+
+body.dark-mode .card-list {
+    background: #1c1c1c;
+    border-color: #333;
+}
+
+.card-list li {
+    padding: 0.55rem 0.85rem;
+    border-bottom: 1px solid #f0f0ec;
+}
+
+body.dark-mode .card-list li {
+    border-bottom-color: #2a2a2a;
+}
+
+.card-list li:last-child {
+    border-bottom: none;
+}
+
+.card-list.mono li,
+.file-list li {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    word-break: break-all;
+}
+
+.file-list {
+    max-height: 16rem;
+    overflow: auto;
+}
+
+details.files {
+    margin-bottom: 1.5rem;
+}
+
+details.files summary {
+    cursor: pointer;
+    font-weight: 650;
+    padding: 0.4rem 0;
+}
+
+.steps {
+    margin: 0 0 2rem;
+    padding-left: 1.25rem;
+}
+
+.steps li {
+    margin: 0.55rem 0;
+}
+
+.search-box {
+    position: relative;
+    width: 100%;
+    margin: 0 0 1.5rem;
+}
+
+#search-input {
+    width: 100%;
+    padding: 0.8rem 1rem;
+    font: inherit;
+    font-size: 1rem;
+    border: 1px solid #d8d8d2;
+    border-radius: 10px;
+    background: #fff;
+    color: inherit;
+}
+
+body.dark-mode #search-input {
+    background-color: #1c1c1c;
+    border-color: #333;
+    color: #ececec;
+}
+
+#search-input:focus {
+    outline: 2px solid #0b6e4f;
+    outline-offset: 1px;
+    border-color: #0b6e4f;
+}
+
+#search-suggestions {
+    position: absolute;
+    top: calc(100% - 4px);
+    left: 0;
+    right: 0;
+    background: #fff;
+    border: 1px solid #d8d8d2;
+    border-radius: 0 0 10px 10px;
+    z-index: 1000;
+    max-height: 300px;
+    overflow-y: auto;
+    display: none;
+}
+
+body.dark-mode #search-suggestions {
+    background-color: #1c1c1c;
+    border-color: #333;
+}
+
+#search-suggestions div {
+    padding: 0.7rem 1rem;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0ec;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.88rem;
+}
+
+body.dark-mode #search-suggestions div {
+    border-bottom-color: #2a2a2a;
+}
+
+#search-suggestions div:last-child {
+    border-bottom: none;
+}
+
+#search-suggestions div:hover {
+    background-color: #f4f4f1;
+}
+
+body.dark-mode #search-suggestions div:hover {
+    background-color: #2a2a2a;
+}
+
+.logo-hero {
+    display: block;
+    width: min(220px, 55%);
+    height: auto;
+    margin: 0 auto 1.25rem;
+}
+
+body.dark-mode .logo-hero {
+    filter: brightness(0.88) contrast(1.1);
+}
+
+.home {
+    text-align: left;
+}
+
+.home .logo-hero {
+    margin-left: 0;
+}
+
+.wallets {
+    display: grid;
+    gap: 0.65rem;
+    margin: 1.25rem 0;
+}
+
+.wallets div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.wallets dt {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #666;
+    font-weight: 650;
+}
+
+body.dark-mode .wallets dt {
+    color: #999;
+}
+
+.wallets dd {
+    margin: 0;
+}
+
+#p-container {
+    width: 100%;
+    background: #e4e4e0;
+    border-radius: 999px;
+    overflow: hidden;
+    height: 12px;
+}
+
+body.dark-mode #p-container {
+    background: #333;
+}
+
+#p-bar {
+    width: 0%;
+    height: 12px;
+    background: #0b6e4f;
+    color: transparent;
+    transition: width 0.4s ease;
+}
+
+body.dark-mode #p-bar {
+    background: #10b981;
+}
+
+#p-label {
+    margin-top: 0.5rem;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.9rem;
+    color: #555;
+}
+
+body.dark-mode #p-label {
+    color: #aaa;
+}
+
+#status-message {
+    margin: 0 0 0.75rem;
+    font-weight: 650;
+}
