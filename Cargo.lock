@@ -2400,6 +2400,7 @@ dependencies = [
  "chrono",
  "directories 6.0.0",
  "hex 0.4.3",
+ "libc",
  "librqbit",
  "reqwest",
  "serde",

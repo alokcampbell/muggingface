@@ -457,6 +457,24 @@ pub async fn run() -> std::io::Result<()> {
     if let Err(e) = ensure_server_directories() {
         error!("Failed to initialize server directories: {e}");
     }
+    if let Ok(dir) = seeding_dir() {
+        match crate::gc::prune_if_needed(&dir) {
+            Ok(deleted) if !deleted.is_empty() => {
+                info!("startup GC removed {} old model dirs", deleted.len());
+            }
+            Err(e) => error!("startup GC failed: {e}"),
+            _ => {}
+        }
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(15 * 60));
+            loop {
+                interval.tick().await;
+                if let Err(e) = crate::gc::prune_if_needed(&dir) {
+                    error!("periodic GC failed: {e}");
+                }
+            }
+        });
+    }
 
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let db_pool = sqlx::PgPool::connect(&database_url)

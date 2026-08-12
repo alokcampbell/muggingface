@@ -1,114 +1,108 @@
 {% extends "base.html" %}
 
-{% block title %}{{ full_repo }} - Loading - muggingface.co{% endblock title %}
+{% block title %}{{ full_repo }} - preparing - muggingface.co{% endblock title %}
 
 {% block head_extra %}
 <style>
-    #p-container {
-        width: 100%;
-        background-color: #000; /* Black background for progress bar container */
-        border-radius: 10px;
-        overflow: hidden;
-        margin: 10px 0;
-    }
-    body.dark-mode #p-container {
-        background-color: #444; /* Darker grey for dark mode */
-    }
-
-    #p-bar {
-        width: 0%;
-        height: 20px;
-        background-color: red; /* Red progress bar */
-        text-align: center;
-        color: white;
-        line-height: 20px;
-        transition: width 0.4s ease;
-    }
-
-    #status-message {
-        margin: 10px 0;
-        font-weight: bold;
-        color: #666;
-    }
-    body.dark-mode #status-message {
-        color: #aaa;
-    }
-    .loading-container {
-        padding: 2rem;
-        text-align: center;
-    }
-    body.dark-mode .loading-container h1,
-    body.dark-mode .loading-container h2 {
-        color: #e0e0e0;
-    }
+  .repo-page {
+    max-width: 40rem;
+    margin: 0 auto;
+    padding: 1.5rem 1.25rem 3rem;
+  }
+  .repo-kicker {
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #0b6e4f;
+    font-weight: 650;
+    margin: 0 0 0.4rem;
+  }
+  body.dark-mode .repo-kicker { color: #6ee7b7; }
+  .repo-page h1 {
+    font-size: 1.45rem;
+    line-height: 1.25;
+    margin: 0 0 0.5rem;
+    word-break: break-word;
+  }
+  .sha {
+    margin: 0 0 1.25rem;
+    color: #666;
+    font-size: 0.85rem;
+  }
+  body.dark-mode .sha { color: #999; }
+  #status-message {
+    margin: 0 0 0.75rem;
+    font-weight: 650;
+  }
+  #p-container {
+    width: 100%;
+    background: #e4e4e0;
+    border-radius: 999px;
+    overflow: hidden;
+    height: 12px;
+  }
+  body.dark-mode #p-container { background: #333; }
+  #p-bar {
+    width: 0%;
+    height: 12px;
+    background: #0b6e4f;
+    color: transparent;
+    transition: width 0.4s ease;
+  }
+  body.dark-mode #p-bar { background: #10b981; }
+  #p-label {
+    margin-top: 0.5rem;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.9rem;
+    color: #555;
+  }
+  body.dark-mode #p-label { color: #aaa; }
 </style>
 {% endblock head_extra %}
 
 {% block page_title %}{{ full_repo }}{% endblock page_title %}
 
 {% block content %}
-<div class="loading-container">
-    <div id="loading-content">
-        <h1>{{ full_repo }}</h1>
-        <h2>SHA: {{ sha }}</h2>
-        <div id="status-message">Starting download...</div>
-        <div id="p-container">
-            <div id="p-bar">0%</div>
-        </div>
-    </div>
-</div>
+<article class="repo-page">
+  <p class="repo-kicker">Preparing torrent</p>
+  <h1>{{ full_repo }}</h1>
+  <p class="sha"><code>{{ sha }}</code></p>
+  <div id="status-message">Fetching repository…</div>
+  <div id="p-container"><div id="p-bar">0%</div></div>
+  <div id="p-label">0%</div>
+</article>
 {% endblock content %}
 
 {% block scripts %}
 <script>
-        const bar = document.getElementById("p-bar");
-        const loadingContent = document.getElementById("loading-content");
-        const statusMessage = document.getElementById("status-message");
+  const bar = document.getElementById("p-bar");
+  const label = document.getElementById("p-label");
+  const statusMessage = document.getElementById("status-message");
+  const fullRepo = {{ full_repo | json_encode | safe }};
+  const parts = fullRepo.split('/');
+  const user = parts[0];
+  const repo = parts.slice(1).join('/');
+  const progressUrl = `/${user}/${repo}/progress_json`;
 
-    if (bar && loadingContent && statusMessage) {
-            let lastProgress = 0;
-            console.log("Setting up progress polling...");
-        const fullRepo = '{{ full_repo | safe }}'; // Ensure full_repo is safely handled
-        const sha = '{{ sha | safe }}'; // Ensure sha is safely handled
-        const parts = fullRepo.split('/');
-        const user = parts[0];
-        const repo = parts.slice(1).join('/'); // Handle repo names with slashes
-
-            console.log("Polling for user:", user, "repo:", repo);
-
-            const progressUrl = `${window.location.origin}/${user}/${repo}/progress_json`;
-            console.log("Polling URL:", progressUrl);
-
-            async function pollProgress() {
-                try {
-                    const response = await fetch(progressUrl);
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    const data = await response.json();
-                    console.log("Progress update:", data);
-                
-                    // Ensure total is not zero to avoid division by zero
-                    const total = data.total > 0 ? data.total : 1;
-                    const progress = (data.downloaded / total) * 100;
-
-                    bar.style.width = `${progress}%`;
-                    bar.textContent = `${progress.toFixed(1)}%`;
-                    lastProgress = progress;
-
-                    if (progress < 100) {
-                        setTimeout(pollProgress, 1000);
-                    } else {
-                        // Redirect to the finished page, which is the repo root path
-                        window.location.href = `${window.location.origin}/${user}/${repo}`;
-                    }
-                } catch (error) {
-                    console.error("Polling error:", error);
-                                                                statusMessage.textContent = "Error fetching progress. Please check console or refresh.";
-                                                                // Optionally stop polling on persistent errors or after a number of retries
-                                                            }
-                                                        }
-                                                        pollProgress();
-                                                    }
-                                                </script>
+  async function pollProgress() {
+    try {
+      const response = await fetch(progressUrl);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const total = data.total > 0 ? data.total : 1;
+      const progress = Math.min(100, (data.downloaded / total) * 100);
+      bar.style.width = `${progress}%`;
+      label.textContent = `${progress.toFixed(1)}%`;
+      if (progress < 100) {
+        setTimeout(pollProgress, 1000);
+      } else {
+        window.location.href = `/${user}/${repo}`;
+      }
+    } catch (error) {
+      statusMessage.textContent = "Could not read progress. Retrying…";
+      setTimeout(pollProgress, 2000);
+    }
+  }
+  pollProgress();
+</script>
 {% endblock scripts %}

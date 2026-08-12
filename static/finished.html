@@ -1,198 +1,178 @@
 {% extends "base.html" %}
 
-{% block title %}{{ full_repo }} - Finished - muggingface.co{% endblock title %}
+{% block title %}{{ full_repo }} - muggingface.co{% endblock title %}
 
 {% block head_extra %}
 <style>
-    .finished-container {
-        padding: 2rem;
-        text-align: left;
-    }
-
-    body.dark-mode .finished-container h1,
-    body.dark-mode .finished-container h2,
-    body.dark-mode .finished-container h3,
-    body.dark-mode .info-details dt,
-    body.dark-mode .info-details dd {
-        color: #e0e0e0;
-    }
-
-    body.dark-mode .finished-container ul {
-        color: #dcdcdc;
-    }
-
-    body.dark-mode .finished-container h1.repo-title {
-        background-color: #000000; /* Darker than header for emphasis */
-        border-bottom: 1px solid #5a4c41; /* Darker border */
-    }
-    body.dark-mode .info-details {
-        border-top: 1px solid #444;
-        border-bottom: 1px solid #444;
-    }
-    body.dark-mode .download-link-section a {
-        color: #2ecc71; /* Brighter green for dark mode */
-        text-decoration: underline;
-        font-weight: normal;
-        padding: 0;
-        border-radius: 0;
-    }
-    body.dark-mode .download-link-section a:hover {
-        color: #38f887;
-    }
-
-    .finished-container h1.repo-title {
-        font-size: 1.8em;
-        font-weight: bold;
-        background-color: #ffffff; /* Light background */
-        padding: 10px 15px;
-        margin: -2rem -2rem 1.5rem -2rem; /* Extend to edges */
-        border-bottom: 1px solid #e0d6c6; /* Light border */
-        color: #333;
-    }
-
-    .info-details {
-        margin-bottom: 1.5rem;
-        padding: 10px 0;
-        border-top: 1px solid #eee;
-        border-bottom: 1px solid #eee;
-    }
-    .info-details dl {
-        margin: 0;
-        padding: 0;
-    }
-    .info-details dt,
-    .info-details dd {
-        padding: 5px 0;
-        line-height: 1.6;
-    }
-    .info-details dt {
-        font-weight: bold;
-        float: left;
-        width: 120px;
-        clear: left;
-    }
-    .info-details dd {
-        margin-left: 130px;
-    }
-    .info-details dd ul {
-        list-style-type: disc;
-        padding-left: 20px;
-        margin: 0;
-    }
-    .info-details dd li {
-        margin-bottom: 2px;
-    }
-
-    .description-section {
-        margin-top: 1.5rem;
-        padding: 10px;
-        background-color: #f9f9f9;
-        border: 1px solid #eee;
-        border-radius: 4px;
-        line-height: 1.6;
-    }
-    body.dark-mode .description-section {
-        background-color: #2c2c2c;
-        border-color: #444;
-    }
-
-    .download-link-section {
-        margin-top: 1.5rem;
-        margin-bottom: 1.5rem;
-    }
-    .download-link-section a {
-        color: #16a085; /* Teal color for the link */
-        text-decoration: none;
-        font-weight: normal;
-    }
-    .download-link-section a:hover {
-        color: #1db99b; /* Lighter teal on hover */
-    }
-    .download-link-section .magnet-link-text {
-        font-weight: bold;
-        text-decoration: underline;
-    }
-    .download-link-section .magnet-emoji {
-        text-decoration: none !important; 
-        font-weight: normal;
-        margin-right: 0.3em;
-    }
-    /* General list styling (already present) */
-    .finished-container h2, .finished-container h3 {}
-    .finished-container ul {
-        list-style-type: none;
-        padding: 0;
-        margin-bottom: 1rem;
-    }
-    .finished-container li {
-        margin: 0.2rem 0;
-    }
-    .finished-container img { /* For any images, e.g. logo if added */
-        max-width: 10%; 
-        height: auto;
-        margin-top: 1rem;
-    }
-    body.dark-mode .finished-container img {
-        filter: brightness(0.8) contrast(1.2); 
-    }
-
-    .download-link-section a.torrent-file-link {
-        font-size: 0.9em;
-        color: #555; /* Subtler color for the .torrent file link */
-        text-decoration: none;
-        font-weight: normal;
-    }
-    body.dark-mode .download-link-section a.torrent-file-link {
-        color: #bbb;
-    }
-    .download-link-section a.torrent-file-link:hover {
-        text-decoration: underline;
-    }
+  .repo-page {
+    max-width: 40rem;
+    margin: 0 auto;
+    padding: 1.5rem 1.25rem 3rem;
+  }
+  .repo-kicker {
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #0b6e4f;
+    font-weight: 650;
+    margin: 0 0 0.4rem;
+  }
+  body.dark-mode .repo-kicker { color: #6ee7b7; }
+  .repo-page h1 {
+    font-size: 1.45rem;
+    line-height: 1.25;
+    margin: 0 0 1.25rem;
+    word-break: break-word;
+  }
+  .magnet-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    background: #0b6e4f;
+    color: #fff !important;
+    text-decoration: none !important;
+    font-weight: 650;
+    font-size: 1.05rem;
+    padding: 0.9rem 1rem;
+    border-radius: 10px;
+    border: none;
+  }
+  .magnet-btn:hover { background: #085c42; color: #fff !important; }
+  body.dark-mode .magnet-btn { background: #059669; }
+  body.dark-mode .magnet-btn:hover { background: #10b981; }
+  .repo-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin: 0.75rem 0 1.5rem;
+    flex-wrap: wrap;
+  }
+  .repo-actions button,
+  .repo-actions a {
+    flex: 1;
+    min-width: 8rem;
+    text-align: center;
+    background: #fff;
+    border: 1px solid #d8d8d2;
+    border-radius: 8px;
+    padding: 0.55rem 0.75rem;
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+    color: inherit;
+    text-decoration: none;
+  }
+  body.dark-mode .repo-actions button,
+  body.dark-mode .repo-actions a {
+    background: #1c1c1c;
+    border-color: #333;
+    color: #ececec;
+  }
+  .meta {
+    display: grid;
+    gap: 0.75rem;
+    margin: 0 0 1.25rem;
+  }
+  .meta div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .meta dt {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #666;
+    font-weight: 650;
+  }
+  body.dark-mode .meta dt { color: #999; }
+  .meta dd { margin: 0; }
+  .file-list {
+    list-style: none;
+    padding: 0;
+    margin: 0.75rem 0 0;
+    max-height: 16rem;
+    overflow: auto;
+    border: 1px solid #e4e4e0;
+    border-radius: 8px;
+    background: #fff;
+  }
+  body.dark-mode .file-list { background: #1c1c1c; border-color: #333; }
+  .file-list li {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    padding: 0.4rem 0.75rem;
+    border-bottom: 1px solid #f0f0ec;
+    word-break: break-all;
+  }
+  body.dark-mode .file-list li { border-bottom-color: #2a2a2a; }
+  .file-list li:last-child { border-bottom: none; }
+  details.files {
+    margin-bottom: 1.5rem;
+  }
+  details.files summary {
+    cursor: pointer;
+    font-weight: 650;
+    padding: 0.4rem 0;
+  }
+  .hint {
+    font-size: 0.9rem;
+    color: #555;
+    margin: 0;
+  }
+  body.dark-mode .hint { color: #aaa; }
+  .hint a { font-weight: 650; }
 </style>
 {% endblock head_extra %}
 
 {% block page_title %}{{ full_repo }}{% endblock page_title %}
 
 {% block content %}
-<div class="finished-container">
-    <h1 class="repo-title">{{ full_repo }}</h1>
-
-    <div class="info-details">
-        <dl>
-            <dt>Info Hash:</dt>
-            <dd>{{ sha }}</dd>
-
-            <dt>Total Files:</dt>
-            <dd>{{ file_names | length }}</dd>
-
-            <dt>File Names:</dt>
-            <dd>
-                <ul>
-                    {% for file_name in file_names %}
-                    <li>{{ file_name }}</li>
-                    {% endfor %}
-                    </ul>
-                    </dd>
-                    </dl>
-                    </div>
-
-    <div class="download-link-section">
-        <h3><span class="magnet-emoji">🧲</span> <a href="{{ magnet_link }}" class="magnet-link-text">MAGNET LINK</a>
-        </h3>
-        <!-- <p style="margin-top: 0.5rem;">
-                            <a href="/torrent/{{ sha }}/download" class="torrent-file-link">Download .torrent File</a>
-                        </p> -->
+<article class="repo-page">
+  <p class="repo-kicker">Ready</p>
+  <h1>{{ full_repo }}</h1>
+  <a class="magnet-btn" href="{{ magnet_link }}">Open magnet link</a>
+  <div class="repo-actions">
+    <button type="button" id="copy-magnet">Copy magnet</button>
+    <a href="/torrent/{{ sha }}/download">Download .torrent</a>
+  </div>
+  <dl class="meta">
+    <div>
+      <dt>Commit</dt>
+      <dd><code>{{ sha }}</code></dd>
     </div>
-
-    <div class="description-section">
-        <p>Your download is ready. Click the magnet link above to start downloading with your torrent client.</p>
-        <p>If you don't have a torrent client, we recommend <a href="https://www.qbittorrent.org/"
-                target="_blank">qBittorrent</a> (free, open-source, no ads) or <a href="https://www.transmissionbt.com/"
-                target="_blank">Transmission</a> (free, open-source).</p>
-        <p>Thank you for using muggingface.co!</p>
+    <div>
+      <dt>Files</dt>
+      <dd>{{ file_names | length }}</dd>
     </div>
+  </dl>
+  <details class="files">
+    <summary>Show {{ file_names | length }} files</summary>
+    <ul class="file-list">
+      {% for file_name in file_names %}
+      <li>{{ file_name }}</li>
+      {% endfor %}
+    </ul>
+  </details>
+  <p class="hint">Open the magnet in <a href="https://www.qbittorrent.org/" target="_blank" rel="noopener">qBittorrent</a> or <a href="https://www.transmissionbt.com/" target="_blank" rel="noopener">Transmission</a>.</p>
+</article>
+{% endblock content %}
 
-    {# Optionally, include a small logo or branding image here #}
-    {# <img src="/static/muggingface.png" alt="muggingface.co logo"> #}
-    </div>
-    {% endblock content %}
+{% block scripts %}
+<script>
+  const magnetBtn = document.querySelector('.magnet-btn');
+  const btn = document.getElementById('copy-magnet');
+  if (magnetBtn && btn && navigator.clipboard) {
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(magnetBtn.href);
+        btn.textContent = 'Copied';
+        setTimeout(() => { btn.textContent = 'Copy magnet'; }, 1500);
+      } catch (e) {
+        btn.textContent = 'Copy failed';
+      }
+    });
+  }
+</script>
+{% endblock scripts %}

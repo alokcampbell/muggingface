@@ -1,4 +1,5 @@
 pub mod db;
+pub mod gc;
 pub mod git_lfs;
 pub mod hf;
 pub mod magnet;
