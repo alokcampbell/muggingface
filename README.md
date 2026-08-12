@@ -7,6 +7,8 @@ https://muggingface.co
 ## Features
 
 - Convert any Hugging Face repository into a torrent
+- Search Hugging Face models (not only already-torrented ones)
+- Canonical redirects (`/gpt2` → `/openai-community/gpt2`)
 - Real-time download progress tracking
 - Automatic magnet link generation
 - Persistent storage of torrent files

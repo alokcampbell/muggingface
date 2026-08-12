@@ -148,7 +148,7 @@
 <div class="container">
   <img src="/static/muggingface_large.png" alt="muggingface.co Logo" class="logo-image">
   <div class="search-container">
-    <input type="search" id="search-input" placeholder="Search models (e.g. stabilityai/stable-diffusion-2-1)">
+    <input type="search" id="search-input" placeholder="Search models (e.g. openai-community/gpt2)" autocomplete="off">
     <div id="search-suggestions"></div>
   </div>
 
@@ -157,10 +157,10 @@
   <ol>
     <li>Find a model on <a href="https://huggingface.co/models" target="_blank" rel="noopener">huggingface.co</a>.</li>
     <li>Change the url from huggingface.co to muggingface.co<br>
-      <a href="https://huggingface.co/stabilityai/stable-diffusion-2-1" target="_blank"
-        rel="noopener"><code>huggingface.co/stabilityai/stable-diffusion-2-1</code></a> ->
-      <a href="https://muggingface.co/stabilityai/stable-diffusion-2-1" target="_blank"
-        rel="noopener"><code>muggingface.co/stabilityai/stable-diffusion-2-1</code></a>
+      <a href="https://huggingface.co/openai-community/gpt2" target="_blank"
+        rel="noopener"><code>huggingface.co/openai-community/gpt2</code></a> ->
+      <a href="https://muggingface.co/openai-community/gpt2" target="_blank"
+        rel="noopener"><code>muggingface.co/openai-community/gpt2</code></a>
     </li>
     <li>Download using the magnet link.</li>
   </ol>
@@ -201,7 +201,10 @@
     }
 
     fetch(`/search?q=${encodeURIComponent(query)}`)
-      .then(response => response.json())
+      .then(response => {
+        if (!response.ok) throw new Error(`search ${response.status}`);
+        return response.json();
+      })
       .then(data => {
         if (query.length === 0 && !initialSuggestionsLoaded) {
           initialSuggestionsLoaded = true; // Mark as loaded after first empty query fetch

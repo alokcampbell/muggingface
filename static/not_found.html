@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}{{ full_repo }} not found - muggingface.co{% endblock title %}
+
+{% block page_title %}Not found{% endblock page_title %}
+
+{% block content %}
+<div class="container" style="padding: 2rem; text-align: center;">
+  <h1>Repository not found</h1>
+  <p><code>{{ full_repo }}</code> is not on Hugging Face (removed, renamed, or private).</p>
+  {% if suggestions %}
+  <p>Did you mean:</p>
+  <ul style="list-style: none; padding: 0;">
+    {% for item in suggestions %}
+    <li style="margin: 0.4rem 0;"><a href="/{{ item.full_repo }}">{{ item.full_repo }}</a></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>Try searching from the <a href="/">home page</a>.</p>
+  {% endif %}
+</div>
+{% endblock content %}
