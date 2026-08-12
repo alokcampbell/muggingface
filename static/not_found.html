@@ -12,7 +12,7 @@
   <p>Did you mean:</p>
   <ul style="list-style: none; padding: 0;">
     {% for item in suggestions %}
-    <li style="margin: 0.4rem 0;"><a href="/{{ item.full_repo }}">{{ item.full_repo }}</a></li>
+    <li style="margin: 0.4rem 0;"><a href="/{{ item.full_repo | safe }}">{{ item.full_repo }}</a></li>
     {% endfor %}
   </ul>
   {% else %}

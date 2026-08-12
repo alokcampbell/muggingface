@@ -293,13 +293,22 @@ async fn download_torrent_by_sha(
 }
 
 async fn hf_suggestions(hf: &HfClient, query: &str) -> Vec<SearchSuggestion> {
-    match hf.search_models(query, 8).await {
-        Ok(hits) => merge_suggestions([], hits, 8),
+    let mut hits = match hf.search_models(query, 8).await {
+        Ok(hits) => hits,
         Err(e) => {
             error!("HF suggestions failed: {e}");
             Vec::new()
         }
+    };
+    if let Some((_, repo)) = split_repo_id(query) {
+        if repo != query {
+            match hf.search_models(&repo, 8).await {
+                Ok(more) => hits.extend(more),
+                Err(e) => error!("HF suggestions (repo name) failed: {e}"),
+            }
+        }
     }
+    merge_suggestions([], hits, 8)
 }
 
 async fn serve_existing_torrent(
